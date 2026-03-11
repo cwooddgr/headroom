@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -40,6 +41,11 @@ PLIST_TEMPLATE = """\
     <integer>10</integer>
     <key>WorkingDirectory</key>
     <string>{working_dir}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>{path}</string>
+    </dict>
 </dict>
 </plist>
 """
@@ -89,11 +95,19 @@ def _install_launchagent():
     import headroom
     pkg_dir = str(Path(headroom.__file__).parent.parent)
 
+    # Include current PATH so LaunchAgent can find Homebrew binaries (macmon)
+    env_path = os.environ.get('PATH', '/usr/bin:/bin:/usr/sbin:/sbin')
+    # Ensure common Homebrew paths are included
+    for brew_path in ['/opt/homebrew/bin', '/usr/local/bin']:
+        if brew_path not in env_path:
+            env_path = brew_path + ':' + env_path
+
     plist_content = PLIST_TEMPLATE.format(
         label=LAUNCHAGENT_LABEL,
         python=python_path,
         log_dir=str(DATA_DIR),
         working_dir=pkg_dir,
+        path=env_path,
     )
 
     LAUNCHAGENT_DIR.mkdir(parents=True, exist_ok=True)
