@@ -52,57 +52,38 @@ final class SMCReader {
     // MARK: - Connection
 
     private func openConnection() {
-        // macmon connects to "AppleSMCKeysEndpoint", a child of the AppleSMC driver
-        var iter: io_iterator_t = 0
-        guard IOServiceGetMatchingServices(
+        // Search directly for AppleSMCKeysEndpoint by name across the IORegistry
+        let endpoint = IOServiceGetMatchingService(
             kIOMainPortDefault,
-            IOServiceNameMatching("AppleSMC"),
-            &iter
-        ) == kIOReturnSuccess else {
-            print("SMCReader: No AppleSMC services found")
-            return
-        }
-        defer { IOObjectRelease(iter) }
-
-        var entry = IOIteratorNext(iter)
-        while entry != 0 {
-            var nameBuffer = [CChar](repeating: 0, count: 128)
-            IORegistryEntryGetName(entry, &nameBuffer)
-            let name = String(cString: nameBuffer)
-
-            if name == "AppleSMCKeysEndpoint" {
-                let result = IOServiceOpen(entry, mach_task_self_, 0, &connection)
-                IOObjectRelease(entry)
-                if result == kIOReturnSuccess {
-                    isOpen = true
-                    print("SMCReader: Connected to AppleSMCKeysEndpoint")
-                } else {
-                    print("SMCReader: Failed to open AppleSMCKeysEndpoint: 0x\(String(result, radix: 16))")
-                }
+            IOServiceNameMatching("AppleSMCKeysEndpoint")
+        )
+        if endpoint != 0 {
+            let result = IOServiceOpen(endpoint, mach_task_self_, 0, &connection)
+            IOObjectRelease(endpoint)
+            if result == kIOReturnSuccess {
+                isOpen = true
+                hrLog("\u{1F50C}", "SMC", "Connected to AppleSMCKeysEndpoint")
                 return
             }
-
-            IOObjectRelease(entry)
-            entry = IOIteratorNext(iter)
+            hrLog("\u{274C}", "SMC", "Failed to open AppleSMCKeysEndpoint: 0x\(String(result, radix: 16))")
         }
 
-        // Fallback: open AppleSMC directly (older macOS)
+        // Fallback: open AppleSMC directly (older macOS / Intel)
         let service = IOServiceGetMatchingService(
             kIOMainPortDefault,
-            IOServiceMatching("AppleSMC")
+            IOServiceNameMatching("AppleSMC")
         )
         guard service != 0 else {
-            print("SMCReader: AppleSMC not found")
+            hrLog("\u{274C}", "SMC", "No AppleSMC service found")
             return
         }
-        defer { IOObjectRelease(service) }
-
         let result = IOServiceOpen(service, mach_task_self_, 0, &connection)
+        IOObjectRelease(service)
         if result == kIOReturnSuccess {
             isOpen = true
-            print("SMCReader: Connected to AppleSMC (fallback)")
+            hrLog("\u{26A0}\u{FE0F}", "SMC", "Connected to AppleSMC (fallback)")
         } else {
-            print("SMCReader: Failed to open AppleSMC: 0x\(String(result, radix: 16))")
+            hrLog("\u{274C}", "SMC", "Failed to open AppleSMC: 0x\(String(result, radix: 16))")
         }
     }
 
@@ -117,7 +98,7 @@ final class SMCReader {
 
     private func discoverTemperatureKeys() {
         let totalKeys = getKeyCount()
-        print("SMCReader: Total SMC keys: \(totalKeys)")
+        hrLog("\u{1F50D}", "SMC", "Total SMC keys: \(totalKeys)")
 
         for i in 0..<totalKeys {
             guard let key = getKeyAtIndex(i) else { continue }
@@ -139,8 +120,8 @@ final class SMCReader {
             }
         }
 
-        print("SMCReader: CPU temp keys (\(cpuTempKeys.count)): \(cpuTempKeys)")
-        print("SMCReader: GPU temp keys (\(gpuTempKeys.count)): \(gpuTempKeys)")
+        hrLog("\u{1F321}\u{FE0F}", "SMC", "CPU temp keys (\(cpuTempKeys.count)): \(cpuTempKeys)")
+        hrLog("\u{1F321}\u{FE0F}", "SMC", "GPU temp keys (\(gpuTempKeys.count)): \(gpuTempKeys)")
     }
 
     // MARK: - Temperature Reading

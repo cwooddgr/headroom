@@ -24,6 +24,7 @@
 		B30000000000000000000001 /* MetricsCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* MetricsCollector.swift */; };
 		B30000000000000000000002 /* SMCReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* SMCReader.swift */; };
 		B30000000000000000000003 /* ProcessSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* ProcessSnapshot.swift */; };
+		B30000000000000000000004 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* Log.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -46,6 +47,7 @@
 		A20000000000000000000004 /* MetricsCollector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsCollector.swift; sourceTree = "<group>"; };
 		A20000000000000000000005 /* SMCReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCReader.swift; sourceTree = "<group>"; };
 		A20000000000000000000006 /* ProcessSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessSnapshot.swift; sourceTree = "<group>"; };
+		A20000000000000000000007 /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -118,6 +120,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000002 /* DatabaseSchema.swift */,
+				A20000000000000000000007 /* Log.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -217,6 +220,7 @@
 				B30000000000000000000001 /* MetricsCollector.swift in Sources */,
 				B30000000000000000000002 /* SMCReader.swift in Sources */,
 				B30000000000000000000003 /* ProcessSnapshot.swift in Sources */,
+				B30000000000000000000004 /* Log.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

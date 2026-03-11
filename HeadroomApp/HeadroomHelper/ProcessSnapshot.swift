@@ -48,24 +48,26 @@ struct ProcessEntry {
     let memoryBytes: Int64
 }
 
-// Mach timebase for converting absolute time to nanoseconds
-private let machTimebaseNsPerTick: Double = {
+// Mach timebase info (logged once at startup for diagnostics)
+private let machTimebaseInfo: mach_timebase_info_data_t = {
     var info = mach_timebase_info_data_t()
     mach_timebase_info(&info)
-    let factor = Double(info.numer) / Double(info.denom)
-    print("ProcessSnapshot: mach_timebase_info numer=\(info.numer) denom=\(info.denom) factor=\(factor)")
-    return factor
+    hrLog("\u{23F1}\u{FE0F}", "Process", "mach_timebase numer=\(info.numer) denom=\(info.denom)")
+    return info
 }()
 
 final class ProcessSnapshot {
     // Raw snapshot data for CPU delta computation
     private struct RawInfo {
         let name: String
-        let totalCPU: UInt64 // Mach absolute time ticks (convert via machTimebaseNsPerTick)
+        let totalCPU: UInt64 // Mach absolute time ticks
         let memoryBytes: Int64
     }
 
     func captureTopProcesses(count: Int = 15) -> [ProcessEntry] {
+        // Force timebase evaluation on first call
+        _ = machTimebaseInfo
+
         // Take two snapshots 1 second apart to compute instantaneous CPU %
         let snap1 = captureRaw()
         let t1 = mach_absolute_time()
@@ -84,7 +86,7 @@ final class ProcessSnapshot {
             guard info2.totalCPU >= info1.totalCPU else { continue }
 
             let deltaCPU = Double(info2.totalCPU - info1.totalCPU)
-            // Both deltaCPU and wallTicks are in Mach absolute time units — no conversion needed
+            // Both deltaCPU and wallTicks are in Mach absolute time units
             let cpuPct = deltaCPU / wallTicks * 100.0
 
             entries.append(ProcessEntry(
@@ -95,9 +97,9 @@ final class ProcessSnapshot {
             ))
         }
 
-        // Log a sample for debugging
+        // Log top process for debugging
         if let top = entries.max(by: { $0.cpuPct < $1.cpuPct }) {
-            print("ProcessSnapshot: top CPU process '\(top.name)' = \(String(format: "%.1f", top.cpuPct))% (wallTicks=\(UInt64(wallTicks)))")
+            hrLog("\u{2699}\u{FE0F}", "Process", "top='\(top.name)' \(String(format: "%.1f", top.cpuPct))% | \(entries.count) procs sampled")
         }
 
         // Sort by memory (more stable metric), take top N
@@ -135,7 +137,7 @@ final class ProcessSnapshot {
                 name = (fullPath as NSString).lastPathComponent
             } else {
                 var nameBuffer = [CChar](repeating: 0, count: MAXPATHLEN)
-                proc_name(pid, &nameBuffer, UInt32(nameBuffer.count))
+                _ = proc_name(pid, &nameBuffer, UInt32(nameBuffer.count))
                 let n = String(cString: nameBuffer)
                 if n.isEmpty { continue }
                 name = n

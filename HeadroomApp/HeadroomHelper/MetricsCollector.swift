@@ -88,7 +88,7 @@ final class MetricsCollector {
         if ioReportAvailable {
             setupIOReportSubscription()
         } else {
-            print("MetricsCollector: IOReport unavailable, using fallback metrics")
+            hrLog("\u{26A0}\u{FE0F}", "Metrics", "IOReport unavailable, using fallback metrics")
         }
     }
 
@@ -102,10 +102,10 @@ final class MetricsCollector {
             guard let channels = _copyChannels?(
                 group as CFString, nil, 0, 0, 0
             )?.takeRetainedValue() else {
-                print("MetricsCollector: No channels found for group '\(group)'")
+                hrLog("\u{26A0}\u{FE0F}", "Metrics", "No channels for group '\(group)'")
                 continue
             }
-            print("MetricsCollector: Found channels for group '\(group)'")
+            hrLog("\u{2705}", "Metrics", "Found channels for group '\(group)'")
 
             if allChannels == nil {
                 allChannels = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, channels)
@@ -115,7 +115,7 @@ final class MetricsCollector {
         }
 
         guard let channels = allChannels else {
-            print("MetricsCollector: Failed to discover IOReport channels")
+            hrLog("\u{274C}", "Metrics", "Failed to discover IOReport channels")
             return
         }
 
@@ -124,9 +124,9 @@ final class MetricsCollector {
         subscriptionChannels = subsPtr?.takeRetainedValue()
 
         if subscription == nil {
-            print("MetricsCollector: Failed to create IOReport subscription")
+            hrLog("\u{274C}", "Metrics", "Failed to create IOReport subscription")
         } else {
-            print("MetricsCollector: IOReport subscription created")
+            hrLog("\u{2705}", "Metrics", "IOReport subscription created")
         }
     }
 
@@ -245,7 +245,7 @@ final class MetricsCollector {
                 }
             } else if group == "Energy Model" {
                 let nanojoules = Double(_simpleGetInt?(ch, 0) ?? 0)
-                let watts = nanojoules / 1_000_000_000.0 / 30.0 // nJ → W over 30s
+                let watts = nanojoules / 1_000_000_000.0 / 30.0 // nJ -> W over 30s
 
                 if name.contains("CPU") && !name.contains("GPU") {
                     cpuPower += watts
@@ -356,12 +356,12 @@ final class MetricsCollector {
         var size = MemoryLayout<xsw_usage>.size
         let ret = sysctlbyname("vm.swapusage", &swap, &size, nil, 0)
         guard ret == 0 else {
-            print("MetricsCollector: vm.swapusage sysctl failed with errno=\(errno)")
+            hrLog("\u{274C}", "Metrics", "vm.swapusage sysctl failed errno=\(errno)")
             return 0
         }
         let used = Int64(swap.xsu_used)
         if used > 0 {
-            print("MetricsCollector: swap total=\(swap.xsu_total / (1024*1024))MB avail=\(swap.xsu_avail / (1024*1024))MB used=\(used / (1024*1024))MB")
+            hrLog("\u{1F4A7}", "Swap", "total=\(swap.xsu_total / (1024*1024))MB used=\(used / (1024*1024))MB")
         }
         return used
     }

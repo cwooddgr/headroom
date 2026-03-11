@@ -161,7 +161,7 @@ private final class CollectionEngine: @unchecked Sendable {
             if sqlite3_step(stmt) == SQLITE_DONE {
                 let deleted = sqlite3_changes(db)
                 if deleted > 0 {
-                    print("CollectionEngine: cleaned up \(deleted) bad process snapshot rows")
+                    hrLog("\u{1F9F9}", "DB", "Cleaned up \(deleted) bad process snapshot rows")
                 }
             }
         }
