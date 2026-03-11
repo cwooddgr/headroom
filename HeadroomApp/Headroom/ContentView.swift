@@ -1,0 +1,193 @@
+import SwiftUI
+
+enum Tab: String, CaseIterable, Identifiable, Hashable {
+    case dashboard = "Dashboard"
+    case timeline = "Timeline"
+    case recommendation = "Recommendation"
+    case processes = "Processes"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .dashboard: "gauge.with.dots.needle.67percent"
+        case .timeline: "chart.xyaxis.line"
+        case .recommendation: "star.circle"
+        case .processes: "cpu"
+        }
+    }
+}
+
+struct ContentView: View {
+    @Environment(HeadroomDatabase.self) var db
+    @Environment(CollectorManager.self) var collector
+    @State private var selectedTab: Tab = .dashboard
+
+    var body: some View {
+        HStack(spacing: 0) {
+            sidebar
+            detailView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .task {
+            collector.checkStatus()
+            db.load()
+        }
+        .task(id: "refresh") {
+            // Auto-refresh every 30 seconds
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                collector.checkStatus()
+                db.load()
+            }
+        }
+    }
+
+    // MARK: - Sidebar
+
+    private var sidebar: some View {
+        VStack(spacing: 0) {
+            // Navigation tabs
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Tab.allCases) { tab in
+                    let isSelected = selectedTab == tab
+                    Button {
+                        withAnimation(.spring(duration: 0.35)) {
+                            selectedTab = tab
+                        }
+                    } label: {
+                        Label(tab.rawValue, systemImage: tab.icon)
+                            .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                            .foregroundStyle(isSelected ? .primary : .secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                            .background {
+                                if isSelected {
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(.ultraThinMaterial)
+                                }
+                            }
+                            .overlay {
+                                if isSelected {
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .strokeBorder(.white.opacity(0.15), lineWidth: 0.5)
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .modifier(GlassEffectModifier(isSelected: isSelected))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+
+            Spacer()
+
+            Divider()
+                .padding(.horizontal, 14)
+                .opacity(0.3)
+
+            // Collector status section
+            collectorStatusSection
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+
+            // System info
+            if let info = db.systemInfo {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(info.chip)
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("\(info.totalRAMGB) GB · macOS \(info.macOSVersion)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 10)
+            }
+        }
+        .frame(width: 190)
+        .background(.ultraThinMaterial)
+    }
+
+    // MARK: - Collector Status
+
+    private var collectorStatusSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(collector.isDaemonRunning ? .green : .red)
+                    .frame(width: 7, height: 7)
+
+                Text(collector.isDaemonRunning ? "Collecting" : "Stopped")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(collector.isDaemonRunning ? .primary : .secondary)
+
+                Spacer()
+            }
+
+            if db.isLoaded {
+                Text("\(db.samples.count) samples")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+
+            // Action button
+            if collector.isPerformingAction {
+                HStack(spacing: 4) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Working...")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+            } else if !collector.isCollecting {
+                Button {
+                    collector.start()
+                    Task {
+                        try? await Task.sleep(for: .seconds(35))
+                        db.load()
+                    }
+                } label: {
+                    Label("Start Monitoring", systemImage: "play.fill")
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .controlSize(.small)
+            } else {
+                Button {
+                    collector.stop()
+                } label: {
+                    Label("Pause", systemImage: "pause.fill")
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+    }
+
+    // MARK: - Detail
+
+    @ViewBuilder
+    private var detailView: some View {
+        switch selectedTab {
+        case .dashboard:
+            DashboardView()
+        case .timeline:
+            MetricsTimelineView()
+        case .recommendation:
+            RecommendationView()
+        case .processes:
+            ProcessesView()
+        }
+    }
+}

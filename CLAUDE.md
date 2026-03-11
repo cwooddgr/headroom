@@ -4,47 +4,73 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Headroom is a macOS CLI tool that monitors hardware resource usage over time and produces data-driven Mac purchase recommendations. It answers "what Mac should I buy next?" based on real workload patterns rather than guesswork.
+Headroom is a native macOS app that monitors hardware resource usage over time and produces data-driven Mac purchase recommendations. It answers "what Mac should I buy next?" based on real workload patterns rather than guesswork.
 
-**Target**: macOS 13+ (Ventura+), Apple Silicon only.
+**Target**: macOS 14+ (Sonoma+), Apple Silicon only.
 
 ## Build & Run
 
 ```bash
-pip3 install -e .              # Install in dev mode
-python3 -m headroom --help     # CLI usage
-python3 -m headroom install    # Set up DB + LaunchAgent + start collecting
-python3 -m headroom status     # Check collection status
-python3 -m headroom analyze    # Generate report (after collecting data)
-python3 -m headroom uninstall  # Stop daemon + clean up
+# Build via Xcode
+xcodebuild -project HeadroomApp/HeadroomApp.xcodeproj -scheme Headroom build
+
+# Or open in Xcode
+open HeadroomApp/HeadroomApp.xcodeproj
 ```
+
+The legacy Python CLI (`headroom/`) is retained for reference but is no longer the primary interface.
 
 ## Architecture
 
-Three components, all in the `headroom/` Python package:
+Single-process non-sandboxed macOS app. Collection runs in-process on a background dispatch queue.
 
-1. **Collector** (`collector.py`) — Long-running daemon that reads `macmon pipe` (JSON stream), enriches with `vm_stat` and `memory_pressure`, writes to SQLite every 30s. Process snapshots every 5 min. Started via LaunchAgent.
+```
+Headroom.app (non-sandboxed, SwiftUI GUI)
+    ├── CollectorManager → owns CollectionEngine (background queue)
+    │   ├── MetricsCollector — IOReport, Mach APIs, sysctl
+    │   ├── SMCReader — IOKit AppleSMC temperatures
+    │   └── ProcessSnapshot — libproc enumeration
+    │   └── Writes to SQLite in ~/Library/Application Support/Headroom/
+    └── HeadroomDatabase — reads SQLite, computes analysis, feeds UI
+```
 
-2. **Analyzer** (`analyzer.py`) — Reads SQLite, computes percentile stats, scores four dimensions (Memory, GPU, CPU, Thermal) on 0-10 scale, maps scores to upgrade recommendations, generates Markdown report.
+### Main App (`HeadroomApp/Headroom/`)
+- **HeadroomApp.swift** — App entry point, auto-starts collection for returning users
+- **ContentView.swift** — Sidebar navigation + collector status
+- **Models/CollectorManager.swift** — In-process collection manager with background engine
+- **Models/HeadroomDatabase.swift** — SQLite reader + scoring/analysis engine
+- **Models/Models.swift** — Data structures (Sample, SystemInfoData, DimensionScore, etc.)
+- **Views/** — DashboardView, TimelineView, RecommendationView, ProcessesView, etc.
 
-3. **CLI** (`cli.py`) — Argparse entrypoint dispatching to installer/collector/analyzer.
+### Collectors (`HeadroomApp/HeadroomHelper/`)
+- **MetricsCollector.swift** — IOReport (via dlsym), host_statistics64, sysctl
+- **SMCReader.swift** — IOKit AppleSMC temperature reading
+- **ProcessSnapshot.swift** — proc_listpids/proc_pidinfo enumeration
 
-Supporting modules:
-- `sources.py` — Wrappers for macmon JSON parsing, `vm_stat`, `memory_pressure -Q`, `ps` process snapshots, system info collection
-- `db.py` — SQLite schema, insert/query helpers
-- `installer.py` — LaunchAgent plist generation, load/unload, macmon dependency check
-- `constants.py` — Paths (`~/.headroom/`), intervals, LaunchAgent label
+### Shared (`HeadroomApp/Shared/`)
+- **DatabaseSchema.swift** — SQLite schema, insert helpers
+
+## Data Flow
+
+1. **CollectionEngine** (background dispatch queue) collects metrics every 30s, process snapshots every 5min
+2. Writes to SQLite in `~/Library/Application Support/Headroom/headroom.db` (WAL mode)
+3. **HeadroomDatabase** reads the DB (read-only), computes analysis, renders UI
+4. Auto-starts on launch if DB exists (returning user); first-time users click "Start Monitoring"
 
 ## Key Design Decisions
 
-- **macmon** (`brew install vladkens/tap/macmon`) is the primary data source — sudoless, JSON via `macmon pipe`. Output format: `ecpu_usage`/`pcpu_usage`/`gpu_usage` are `[freq_mhz, utilization_fraction]` tuples.
-- **Swap usage is the primary memory metric**, not raw RAM usage. macOS uses all available RAM by design; swap volume/frequency and memory pressure transitions indicate real constraints.
+- **IOReport** private API (loaded via dlsym) for CPU/GPU utilization, frequency, and power metrics. Fallback to `host_processor_info()` if unavailable.
+- **SMC** (AppleSMC IOKit service) for CPU/GPU temperatures. Fallback to `Foundation.ProcessInfo.thermalState`.
+- **Swap usage is the primary memory metric**, not raw RAM usage. macOS uses all available RAM by design.
 - **Page-in rate** (not page-out) correlates with perceived slowness.
-- Thermal pressure is derived from CPU temperature thresholds (nominal <70°C, moderate <85°C, heavy <95°C, critical ≥95°C).
-- Memory pressure mapped from `memory_pressure -Q` percentage (normal ≥50%, warn ≥25%, critical <25%).
+- Thermal pressure derived from CPU temperature thresholds (nominal <70°C, moderate <85°C, heavy <95°C, critical ≥95°C).
+- Memory pressure from `kern.memorystatus_vm_pressure_level` sysctl.
+- **SQLite with WAL mode** for concurrent reader+writer access.
+- macOS 26+ APIs (MeshGradient, glassEffect) wrapped with `#available` checks for backward compatibility.
+- **Non-sandboxed** for now — required for IOReport/SMC access. Two-process sandboxed architecture planned for App Store submission.
 
 ## Dependencies
 
-- macmon: `brew install vladkens/tap/macmon`
-- Python 3.9+ with sqlite3 (ships with macOS)
-- macOS system utilities: `vm_stat`, `sysctl`, `memory_pressure`, `ps`
+- No external dependencies. Fully self-contained native Swift.
+- macOS system frameworks: IOKit, SQLite3
+- Development team: 2CTUXD4C44
