@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "headroom"
+version = "0.1.0"
+description = "Monitor your Mac's hardware usage and get data-driven upgrade recommendations"
+requires-python = ">=3.9"
+
+[project.scripts]
+headroom = "headroom.cli:main"
