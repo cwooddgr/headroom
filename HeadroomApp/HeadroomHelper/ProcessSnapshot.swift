@@ -89,6 +89,11 @@ final class ProcessSnapshot {
             // Both deltaCPU and wallTicks are in Mach absolute time units
             let cpuPct = deltaCPU / wallTicks * 100.0
 
+            // Noise filter: skip near-zero processes
+            if cpuPct < 0.1 && info2.memoryBytes < 10 * 1024 * 1024 {
+                continue
+            }
+
             entries.append(ProcessEntry(
                 pid: pid,
                 name: info2.name,
@@ -102,8 +107,12 @@ final class ProcessSnapshot {
             hrLog("\u{2699}\u{FE0F}", "Process", "top='\(top.name)' \(String(format: "%.1f", top.cpuPct))% | \(entries.count) procs sampled")
         }
 
-        // Sort by memory (more stable metric), take top N
-        entries.sort { $0.memoryBytes > $1.memoryBytes }
+        // Sort by combined CPU + memory weight
+        entries.sort { a, b in
+            let weightA = a.cpuPct + Double(a.memoryBytes) / (1024.0 * 1024.0)
+            let weightB = b.cpuPct + Double(b.memoryBytes) / (1024.0 * 1024.0)
+            return weightA > weightB
+        }
         return Array(entries.prefix(count))
     }
 

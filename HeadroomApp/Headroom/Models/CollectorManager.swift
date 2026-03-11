@@ -207,6 +207,28 @@ private final class CollectionEngine: @unchecked Sendable {
             model = String(cString: buffer)
         }
 
+        // Get human-readable model name from system_profiler
+        var modelName = model // fallback to hw.model identifier
+        let profilerProcess = Foundation.Process()
+        profilerProcess.executableURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")
+        profilerProcess.arguments = ["SPHardwareDataType", "-json"]
+        let pipe = Pipe()
+        profilerProcess.standardOutput = pipe
+        profilerProcess.standardError = Pipe()
+        do {
+            try profilerProcess.run()
+            profilerProcess.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let items = json["SPHardwareDataType"] as? [[String: Any]],
+               let first = items.first,
+               let name = first["machine_name"] as? String {
+                modelName = name
+            }
+        } catch {
+            // Fall back to hw.model
+        }
+
         var cpuCores: Int32 = 0
         size = MemoryLayout<Int32>.size
         sysctlbyname("hw.ncpu", &cpuCores, &size, nil, 0)
@@ -232,7 +254,8 @@ private final class CollectionEngine: @unchecked Sendable {
         let macOSVersion = "\(osVersion.majorVersion).\(osVersion.minorVersion).\(osVersion.patchVersion)"
 
         _ = DatabaseSchema.setSystemInfo(db, key: "chip", value: chip)
-        _ = DatabaseSchema.setSystemInfo(db, key: "model_name", value: model)
+        _ = DatabaseSchema.setSystemInfo(db, key: "model", value: model)
+        _ = DatabaseSchema.setSystemInfo(db, key: "model_name", value: modelName)
         _ = DatabaseSchema.setSystemInfo(db, key: "cpu_cores", value: "\(cpuCores)")
         _ = DatabaseSchema.setSystemInfo(db, key: "gpu_cores", value: "\(gpuCores)")
         _ = DatabaseSchema.setSystemInfo(db, key: "total_ram_gb", value: "\(ramGB)")

@@ -59,6 +59,7 @@ private typealias StateGetCountFn = @convention(c) (CFDictionary) -> Int32
 private typealias StateGetResidencyFn = @convention(c) (CFDictionary, Int32) -> Int64
 
 private typealias ChannelGetStrFn = @convention(c) (CFDictionary) -> Unmanaged<CFString>?
+private typealias StateGetNameFn = @convention(c) (CFDictionary, Int32) -> Unmanaged<CFString>?
 
 // Loaded symbols (nil if unavailable)
 private let _copyChannels: CopyChannelsFn? = loadSym("IOReportCopyChannelsInGroup")
@@ -70,6 +71,7 @@ private let _iterate: IterateFn? = loadSym("IOReportIterate")
 private let _simpleGetInt: SimpleGetIntFn? = loadSym("IOReportSimpleGetIntegerValue")
 private let _stateGetCount: StateGetCountFn? = loadSym("IOReportStateGetCount")
 private let _stateGetResidency: StateGetResidencyFn? = loadSym("IOReportStateGetResidency")
+private let _stateGetName: StateGetNameFn? = loadSym("IOReportStateGetNameForIndex")
 private let _channelGetGroup: ChannelGetStrFn? = loadSym("IOReportChannelGetGroup")
 private let _channelGetSubGroup: ChannelGetStrFn? = loadSym("IOReportChannelGetSubGroup")
 private let _channelGetName: ChannelGetStrFn? = loadSym("IOReportChannelGetChannelName")
@@ -83,13 +85,90 @@ final class MetricsCollector {
     private let smcReader = SMCReader()
     private let ioReportAvailable: Bool
 
+    // DVFS frequency tables (MHz values per state index)
+    private var eClusterFreqsMHz: [Double] = []
+    private var pClusterFreqsMHz: [Double] = []
+    private var gpuFreqsMHz: [Double] = []
+
     init() {
         ioReportAvailable = _copyChannels != nil && _createSubscription != nil
         if ioReportAvailable {
+            loadDVFSFrequencyTables()
             setupIOReportSubscription()
         } else {
             hrLog("\u{26A0}\u{FE0F}", "Metrics", "IOReport unavailable, using fallback metrics")
         }
+    }
+
+    // MARK: - DVFS Frequency Table Loading
+
+    private func loadDVFSFrequencyTables() {
+        // Find the pmgr node in the IOKit registry
+        guard let matching = IOServiceNameMatching("pmgr") else {
+            hrLog("\u{26A0}\u{FE0F}", "Metrics", "Could not create pmgr matching dict")
+            return
+        }
+
+        let pmgr = IOServiceGetMatchingService(kIOMainPortDefault, matching)
+        guard pmgr != 0 else {
+            hrLog("\u{26A0}\u{FE0F}", "Metrics", "pmgr IOService not found")
+            return
+        }
+        defer { IOObjectRelease(pmgr) }
+
+        // Detect generation for frequency scaling:
+        // M1/M2/M3 store frequencies in Hz, M4+ in kHz
+        var chipName = ""
+        var sz = 0
+        sysctlbyname("machdep.cpu.brand_string", nil, &sz, nil, 0)
+        if sz > 0 {
+            var buf = [CChar](repeating: 0, count: sz)
+            sysctlbyname("machdep.cpu.brand_string", &buf, &sz, nil, 0)
+            chipName = String(cString: buf)
+        }
+        // M4 and later use kHz; M1/M2/M3 use Hz
+        let isM4OrLater = chipName.contains("M4") || chipName.contains("M5") ||
+                          chipName.contains("M6") || chipName.contains("M7")
+        let divisor: Double = isM4OrLater ? 1_000.0 : 1_000_000.0
+
+        eClusterFreqsMHz = readFrequencyTable(from: pmgr, key: "voltage-states1-sram", divisor: divisor)
+        pClusterFreqsMHz = readFrequencyTable(from: pmgr, key: "voltage-states5-sram", divisor: divisor)
+        gpuFreqsMHz = readFrequencyTable(from: pmgr, key: "voltage-states9-sram", divisor: divisor)
+
+        hrLog("\u{1F4CA}", "Metrics", "DVFS tables: E-cluster=\(eClusterFreqsMHz.count) states, P-cluster=\(pClusterFreqsMHz.count) states, GPU=\(gpuFreqsMHz.count) states")
+        if !eClusterFreqsMHz.isEmpty {
+            hrLog("\u{1F4CA}", "Metrics", "E-cluster freqs: \(eClusterFreqsMHz.map { Int($0) }) MHz")
+        }
+        if !pClusterFreqsMHz.isEmpty {
+            hrLog("\u{1F4CA}", "Metrics", "P-cluster freqs: \(pClusterFreqsMHz.map { Int($0) }) MHz")
+        }
+        if !gpuFreqsMHz.isEmpty {
+            hrLog("\u{1F4CA}", "Metrics", "GPU freqs: \(gpuFreqsMHz.map { Int($0) }) MHz")
+        }
+    }
+
+    private func readFrequencyTable(from service: io_service_t, key: String, divisor: Double) -> [Double] {
+        guard let prop = IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0) else {
+            return []
+        }
+        guard let data = prop.takeRetainedValue() as? Data else { return [] }
+
+        // Data is array of (UInt32 freq, UInt32 voltage) pairs, little-endian
+        let pairSize = 8 // 4 bytes freq + 4 bytes voltage
+        let count = data.count / pairSize
+        var freqs: [Double] = []
+
+        for i in 0..<count {
+            let offset = i * pairSize
+            let freqRaw: UInt32 = data.withUnsafeBytes { ptr in
+                ptr.load(fromByteOffset: offset, as: UInt32.self)
+            }
+            let freqMHz = Double(freqRaw) / divisor
+            if freqMHz > 0 {
+                freqs.append(freqMHz)
+            }
+        }
+        return freqs
     }
 
     // MARK: - IOReport Setup
@@ -182,9 +261,8 @@ final class MetricsCollector {
         // Derive thermal pressure from CPU temp
         sample.thermalPressure = deriveThermalPressure(cpuTemp: sample.cpuTempAvg)
 
-        // CPU frequency
-        sample.cpuFreqE = readCPUFrequency()
-        sample.cpuFreqP = readCPUFrequency()
+        // CPU/GPU frequencies come from IOReport (collectIOReportMetrics sets them)
+        // No additional frequency reading needed
 
         return sample
     }
@@ -214,34 +292,104 @@ final class MetricsCollector {
         var anePower: Double = 0
         var packagePower: Double = 0
 
+        // Frequency accumulators: weighted sum of (residency × freq) per cluster
+        var eFreqWeightedSum: Double = 0
+        var eFreqTotalResidency: Int64 = 0
+        var pFreqWeightedSum: Double = 0
+        var pFreqTotalResidency: Int64 = 0
+        var gpuFreqWeightedSum: Double = 0
+        var gpuFreqTotalResidency: Int64 = 0
+
         _iterate?(delta) { ch in
             let group = _channelGetGroup?(ch)?.takeUnretainedValue() as String? ?? ""
             let subGroup = _channelGetSubGroup?(ch)?.takeUnretainedValue() as String? ?? ""
             let name = _channelGetName?(ch)?.takeUnretainedValue() as String? ?? ""
 
             if group == "CPU Stats" || group == "GPU Stats" {
-                // Use state-based residency API for utilization channels
                 let stateCount = _stateGetCount?(ch) ?? 0
                 guard stateCount >= 2 else { return 0 }
 
-                var totalResidency: Int64 = 0
-                var activeResidency: Int64 = 0
-                for s in 0..<stateCount {
-                    let r = _stateGetResidency?(ch, s) ?? 0
-                    totalResidency += r
-                    if s > 0 { activeResidency += r } // All non-idle states
-                }
-                guard totalResidency > 0 else { return 0 }
-                let pct = Double(activeResidency) / Double(totalResidency) * 100.0
+                let isPerformanceStates = subGroup == "CPU Core Performance States" ||
+                                          subGroup == "GPU Performance States"
 
-                if group == "CPU Stats" {
-                    if subGroup.contains("E-Cluster") || name.contains("ECPU") {
-                        eCoreUtils.append(pct)
-                    } else if subGroup.contains("P-Cluster") || name.contains("PCPU") {
-                        pCoreUtils.append(pct)
+                if isPerformanceStates {
+                    // Frequency extraction from DVFS state residency
+                    let freqTable: [Double]
+                    let isECluster = name.contains("ECPU") || name.hasPrefix("E")
+                    let isPCluster = name.contains("PCPU") || name.hasPrefix("P")
+                    let isGPU = group == "GPU Stats"
+
+                    if isECluster {
+                        freqTable = self.eClusterFreqsMHz
+                    } else if isPCluster {
+                        freqTable = self.pClusterFreqsMHz
+                    } else if isGPU {
+                        freqTable = self.gpuFreqsMHz
+                    } else {
+                        freqTable = []
+                    }
+
+                    // Find IDLE/OFF state offset using state names
+                    var idleOffset = 0
+                    for s in 0..<stateCount {
+                        if let stateName = _stateGetName?(ch, s)?.takeUnretainedValue() as String? {
+                            let upper = stateName.uppercased()
+                            if upper == "IDLE" || upper == "DOWN" || upper == "OFF" {
+                                idleOffset = Int(s) + 1
+                            }
+                        }
+                    }
+
+                    var totalRes: Int64 = 0
+                    var activeRes: Int64 = 0
+                    var weightedFreq: Double = 0
+
+                    for s in 0..<stateCount {
+                        let r = _stateGetResidency?(ch, s) ?? 0
+                        totalRes += r
+                        if Int(s) >= idleOffset {
+                            activeRes += r
+                            // Map state index to frequency table
+                            let freqIdx = Int(s) - idleOffset
+                            if freqIdx >= 0 && freqIdx < freqTable.count {
+                                weightedFreq += Double(r) * freqTable[freqIdx]
+                            }
+                        }
+                    }
+
+                    if totalRes > 0 && activeRes > 0 {
+                        if isECluster {
+                            eFreqWeightedSum += weightedFreq
+                            eFreqTotalResidency += activeRes
+                        } else if isPCluster {
+                            pFreqWeightedSum += weightedFreq
+                            pFreqTotalResidency += activeRes
+                        } else if isGPU {
+                            gpuFreqWeightedSum += weightedFreq
+                            gpuFreqTotalResidency += activeRes
+                        }
                     }
                 } else {
-                    gpuUtils.append(pct)
+                    // Utilization channels (existing logic)
+                    var totalResidency: Int64 = 0
+                    var activeResidency: Int64 = 0
+                    for s in 0..<stateCount {
+                        let r = _stateGetResidency?(ch, s) ?? 0
+                        totalResidency += r
+                        if s > 0 { activeResidency += r }
+                    }
+                    guard totalResidency > 0 else { return 0 }
+                    let pct = Double(activeResidency) / Double(totalResidency) * 100.0
+
+                    if group == "CPU Stats" {
+                        if subGroup.contains("E-Cluster") || name.contains("ECPU") {
+                            eCoreUtils.append(pct)
+                        } else if subGroup.contains("P-Cluster") || name.contains("PCPU") {
+                            pCoreUtils.append(pct)
+                        }
+                    } else {
+                        gpuUtils.append(pct)
+                    }
                 }
             } else if group == "Energy Model" {
                 let nanojoules = Double(_simpleGetInt?(ch, 0) ?? 0)
@@ -270,11 +418,25 @@ final class MetricsCollector {
             sample.gpuUtilizationPct = gpuUtils.reduce(0, +) / Double(gpuUtils.count)
         }
 
+        // Compute weighted average frequencies
+        if eFreqTotalResidency > 0 {
+            sample.cpuFreqE = Int(eFreqWeightedSum / Double(eFreqTotalResidency))
+        }
+        if pFreqTotalResidency > 0 {
+            sample.cpuFreqP = Int(pFreqWeightedSum / Double(pFreqTotalResidency))
+        }
+        if gpuFreqTotalResidency > 0 {
+            sample.gpuFreqMhz = Int(gpuFreqWeightedSum / Double(gpuFreqTotalResidency))
+        }
+
         sample.cpuPowerWatts = cpuPower
         sample.gpuPowerWatts = gpuPower
         sample.anePowerWatts = anePower
         sample.packagePowerWatts = packagePower > 0 ? packagePower : cpuPower + gpuPower + anePower
-        sample.sysPowerWatts = sample.packagePowerWatts
+
+        // System power from SMC PSTR key; use max of SMC reading and package power
+        let smcSystemPower = smcReader.readSystemPower()
+        sample.sysPowerWatts = max(smcSystemPower, sample.packagePowerWatts)
     }
 
     // MARK: - Fallback CPU Metrics (host_processor_info)
@@ -364,15 +526,6 @@ final class MetricsCollector {
             hrLog("\u{1F4A7}", "Swap", "total=\(swap.xsu_total / (1024*1024))MB used=\(used / (1024*1024))MB")
         }
         return used
-    }
-
-    // MARK: - CPU Frequency
-
-    private func readCPUFrequency() -> Int {
-        var freq: UInt64 = 0
-        var size = MemoryLayout<UInt64>.size
-        guard sysctlbyname("hw.cpufrequency_max", &freq, &size, nil, 0) == 0 else { return 0 }
-        return Int(freq / 1_000_000)
     }
 
     // MARK: - Thermal Pressure

@@ -269,6 +269,16 @@ final class SMCReader {
         return Float(bitPattern: raw)
     }
 
+    // MARK: - System Power (PSTR key)
+
+    func readSystemPower() -> Double {
+        guard isOpen else { return 0 }
+        guard let value = readFloatKey("PSTR") else { return 0 }
+        return Double(value)
+    }
+
+    // MARK: - Fallback Temperature
+
     private func thermalStateFallbackTemp() -> Double {
         let state = Foundation.ProcessInfo.processInfo.thermalState
         switch state {
