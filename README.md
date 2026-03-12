@@ -12,7 +12,7 @@ Download the latest release from [Releases](../../releases), or build from sourc
 xcodebuild -project HeadroomApp/HeadroomApp.xcodeproj -scheme Headroom build
 ```
 
-Headroom is distributed directly (not via the App Store) because it needs low-level system access for accurate hardware monitoring.
+The app is signed and notarized by Apple for direct distribution. No App Store or sandbox restrictions — Headroom needs low-level system access for accurate hardware monitoring.
 
 ## How It Works
 
