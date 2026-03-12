@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DashboardView: View {
     @Environment(HeadroomDatabase.self) var db
+    @State private var showConfidenceTooltip = false
 
     var body: some View {
         ZStack {
@@ -13,6 +14,8 @@ struct DashboardView: View {
                         headerSection
 
                         gaugeGrid(analysis)
+
+                        pressureLegend
 
                         if let latest = db.latestSample {
                             liveMetricsSection(latest)
@@ -77,6 +80,17 @@ struct DashboardView: View {
                     value: currentValue(for: score.dimension)
                 )
             }
+        }
+    }
+
+    private var pressureLegend: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+            Text("Pressure scores: 0 = no stress, 10 = severe bottleneck. Hover over a gauge for details.")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.tertiary)
         }
     }
 
@@ -167,12 +181,31 @@ struct DashboardView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
             }
+            .onHover { hovering in
+                showConfidenceTooltip = hovering
+            }
+            .popover(isPresented: $showConfidenceTooltip, arrowEdge: .bottom) {
+                Text(confidenceTooltip(for: analysis.confidence))
+                    .font(.system(size: 11))
+                    .padding(8)
+            }
         }
         .font(.system(size: 12, weight: .medium, design: .rounded))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .glassCard(cornerRadius: 14)
+    }
+
+    private func confidenceTooltip(for confidence: String) -> String {
+        switch confidence {
+        case "High":
+            return "48+ hours of data collected. Recommendations reflect your real workload patterns."
+        case "Moderate":
+            return "4–48 hours of data collected. Recommendations are becoming reliable."
+        default:
+            return "Less than 4 hours of data collected. Keep monitoring for more accurate recommendations."
+        }
     }
 
     // MARK: - Empty State / Onboarding

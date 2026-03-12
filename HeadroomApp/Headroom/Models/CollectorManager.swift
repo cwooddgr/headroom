@@ -178,8 +178,6 @@ private final class CollectionEngine: @unchecked Sendable {
             count = sqlite3_column_int(stmt, 0)
         }
         sqlite3_finalize(stmt)
-        guard count == 0 else { return }
-
         var chip = ""
         var size = 0
         sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0)
@@ -217,16 +215,20 @@ private final class CollectionEngine: @unchecked Sendable {
         profilerProcess.standardError = Pipe()
         do {
             try profilerProcess.run()
-            profilerProcess.waitUntilExit()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            profilerProcess.waitUntilExit()
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                let items = json["SPHardwareDataType"] as? [[String: Any]],
                let first = items.first,
                let name = first["machine_name"] as? String {
-                modelName = name
+                if !chip.isEmpty {
+                    modelName = "\(name) (\(chip))"
+                } else {
+                    modelName = name
+                }
             }
         } catch {
-            // Fall back to hw.model
+            hrLog("⚠️", "SysInfo", "system_profiler failed: \(error.localizedDescription)")
         }
 
         var cpuCores: Int32 = 0

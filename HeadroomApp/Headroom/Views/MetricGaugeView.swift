@@ -8,6 +8,7 @@ struct MetricGaugeView: View {
 
     @State private var animatedProgress: Double = 0
     @State private var appeared = false
+    @State private var showTooltip = false
 
     private var progress: Double {
         Double(score) / 10.0
@@ -49,7 +50,7 @@ struct MetricGaugeView: View {
                 }
 
                 // Center content
-                VStack(spacing: 2) {
+                VStack(spacing: 1) {
                     Text("\(score)")
                         .font(.system(size: 38, weight: .bold, design: .rounded))
                         .foregroundStyle(
@@ -64,6 +65,12 @@ struct MetricGaugeView: View {
                     Text("/ 10")
                         .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
+
+                    Text("pressure")
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .foregroundStyle(.tertiary)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
                 }
             }
             .frame(width: 130, height: 130)
@@ -93,12 +100,40 @@ struct MetricGaugeView: View {
         .padding(20)
         .frame(maxWidth: .infinity)
         .glassCard()
+        .onHover { hovering in
+            showTooltip = hovering
+        }
+        .popover(isPresented: $showTooltip, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(dimension.rawValue) Pressure")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(dimensionTooltip)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(10)
+            .frame(width: 240)
+        }
         .onAppear {
             guard !appeared else { return }
             appeared = true
             withAnimation(.spring(duration: 1.2, bounce: 0.2).delay(0.1)) {
                 animatedProgress = progress
             }
+        }
+    }
+
+    private var dimensionTooltip: String {
+        switch dimension {
+        case .memory:
+            return "How much your workload exceeds available RAM. Based on swap usage, memory pressure events, and page-in rate.\n0 = plenty of headroom\n10 = severely memory-constrained"
+        case .gpu:
+            return "How hard your GPU is working. Based on GPU utilization time above 80–90% and GPU power draw.\n0 = mostly idle\n10 = GPU is a major bottleneck"
+        case .cpu:
+            return "How often your CPU performance cores are saturated. Based on P-core utilization above 80–90% and thermal throttling.\n0 = plenty of CPU headroom\n10 = CPU-bound"
+        case .thermal:
+            return "How often your Mac runs hot enough to throttle performance. Based on CPU temperature and time spent in elevated thermal states.\n0 = cool and quiet\n10 = frequent thermal throttling"
         }
     }
 }

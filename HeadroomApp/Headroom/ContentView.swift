@@ -3,8 +3,8 @@ import SwiftUI
 enum Tab: String, CaseIterable, Identifiable, Hashable {
     case dashboard = "Dashboard"
     case timeline = "Timeline"
-    case recommendation = "Recommendation"
     case processes = "Processes"
+    case recommendation = "Recommendation"
 
     var id: String { rawValue }
 
@@ -12,7 +12,7 @@ enum Tab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dashboard: "gauge.with.dots.needle.67percent"
         case .timeline: "chart.xyaxis.line"
-        case .recommendation: "star.circle"
+        case .recommendation: "star.circle.fill"
         case .processes: "cpu"
         }
     }
@@ -49,36 +49,17 @@ struct ContentView: View {
         VStack(spacing: 0) {
             // Navigation tabs
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(Tab.allCases) { tab in
-                    let isSelected = selectedTab == tab
-                    Button {
-                        withAnimation(.spring(duration: 0.35)) {
-                            selectedTab = tab
-                        }
-                    } label: {
-                        Label(tab.rawValue, systemImage: tab.icon)
-                            .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
-                            .foregroundStyle(isSelected ? .primary : .secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .contentShape(Rectangle())
-                            .background {
-                                if isSelected {
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(.ultraThinMaterial)
-                                }
-                            }
-                            .overlay {
-                                if isSelected {
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .strokeBorder(.white.opacity(0.15), lineWidth: 0.5)
-                                }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .modifier(GlassEffectModifier(isSelected: isSelected))
+                // Data tabs
+                ForEach([Tab.dashboard, .timeline, .processes], id: \.self) { tab in
+                    sidebarButton(for: tab)
                 }
+
+                Divider()
+                    .padding(.vertical, 4)
+                    .opacity(0.3)
+
+                // Hero destination
+                sidebarButton(for: .recommendation)
             }
             .padding(.horizontal, 14)
             .padding(.top, 12)
@@ -109,6 +90,39 @@ struct ContentView: View {
         }
         .frame(width: 190)
         .background(.ultraThinMaterial)
+    }
+
+    // MARK: - Sidebar Button
+
+    private func sidebarButton(for tab: Tab) -> some View {
+        let isSelected = selectedTab == tab
+        return Button {
+            withAnimation(.spring(duration: 0.35)) {
+                selectedTab = tab
+            }
+        } label: {
+            Label(tab.rawValue, systemImage: tab.icon)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? .primary : .secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+                .background {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(.ultraThinMaterial)
+                    }
+                }
+                .overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(.white.opacity(0.15), lineWidth: 0.5)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .modifier(GlassEffectModifier(isSelected: isSelected))
     }
 
     // MARK: - Collector Status

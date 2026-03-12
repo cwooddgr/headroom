@@ -56,6 +56,7 @@ Headroom.app (non-sandboxed, SwiftUI GUI)
 2. Writes to SQLite in `~/Library/Application Support/Headroom/headroom.db` (WAL mode)
 3. **HeadroomDatabase** reads the DB (read-only), computes analysis, renders UI
 4. Auto-starts on launch if DB exists (returning user); first-time users click "Start Monitoring"
+5. System info (model name, chip, cores, RAM) is re-collected on every launch via `INSERT OR REPLACE` to keep values fresh
 
 ## Key Design Decisions
 
@@ -66,11 +67,10 @@ Headroom.app (non-sandboxed, SwiftUI GUI)
 - Thermal pressure derived from CPU temperature thresholds (nominal <70°C, moderate <85°C, heavy <95°C, critical ≥95°C).
 - Memory pressure from `kern.memorystatus_vm_pressure_level` sysctl.
 - **SQLite with WAL mode** for concurrent reader+writer access.
-- macOS 26+ APIs (MeshGradient, glassEffect) wrapped with `#available` checks for backward compatibility.
+- macOS 26+ APIs (MeshGradient, glassEffect) wrapped with `#available` checks for backward compatibility. Note: `.glassEffect(.interactive())` consumes hover events, so use `onHover` + `popover` instead of `.help()` for tooltips on views inside glass cards.
 - **Non-sandboxed** for now — required for IOReport/SMC access. Two-process sandboxed architecture planned for App Store submission.
 
 ## Dependencies
 
 - No external dependencies. Fully self-contained native Swift.
 - macOS system frameworks: IOKit, SQLite3
-- Development team: 2CTUXD4C44

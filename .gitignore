@@ -1,10 +1,15 @@
-__pycache__/
-*.py[cod]
-*.egg-info/
-dist/
-build/
-*.egg
+# macOS
 .DS_Store
+
+# Xcode
 xcuserdata/
 *.xcuserstate
+DerivedData/
+*.xcworkspace/xcuserdata/
+
+# Build
+build/
+dist/
+
+# Claude Code
 .claude/
