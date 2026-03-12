@@ -18,7 +18,7 @@ xcodebuild -project HeadroomApp/HeadroomApp.xcodeproj -scheme Headroom build
 open HeadroomApp/HeadroomApp.xcodeproj
 ```
 
-The legacy Python CLI (`headroom/`) is retained for reference but is no longer the primary interface.
+The legacy Python CLI has been removed. The Swift app is the sole interface.
 
 ## Architecture
 
@@ -68,7 +68,7 @@ Headroom.app (non-sandboxed, SwiftUI GUI)
 - Memory pressure from `kern.memorystatus_vm_pressure_level` sysctl.
 - **SQLite with WAL mode** for concurrent reader+writer access.
 - macOS 26+ APIs (MeshGradient, glassEffect) wrapped with `#available` checks for backward compatibility. Note: `.glassEffect(.interactive())` consumes hover events, so use `onHover` + `popover` instead of `.help()` for tooltips on views inside glass cards.
-- **Non-sandboxed** for now — required for IOReport/SMC access. Two-process sandboxed architecture planned for App Store submission.
+- **Non-sandboxed** — required for IOReport/SMC access. Distributed via GitHub releases, not the App Store.
 
 ## Dependencies
 

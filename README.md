@@ -12,7 +12,7 @@ Download the latest release from [Releases](../../releases), or build from sourc
 xcodebuild -project HeadroomApp/HeadroomApp.xcodeproj -scheme Headroom build
 ```
 
-The app is signed and notarized for direct distribution. No App Store or sandbox restrictions — Headroom needs low-level system access for accurate hardware monitoring.
+Headroom is distributed directly (not via the App Store) because it needs low-level system access for accurate hardware monitoring.
 
 ## How It Works
 
@@ -55,7 +55,7 @@ Headroom.app
 
 ```bash
 # Clone and build
-git clone https://github.com/yourusername/headroom.git
+git clone https://github.com/cwooddgr/headroom.git
 cd headroom
 open HeadroomApp/HeadroomApp.xcodeproj
 ```
