@@ -1,5 +1,7 @@
 # Headroom
 
+![Headroom Dashboard](hero.png)
+
 A native macOS app that monitors your Mac's hardware resource usage over time and produces data-driven upgrade recommendations. Instead of guessing what Mac to buy next, Headroom uses your real workload patterns to tell you.
 
 **Requirements**: macOS 14+ (Sonoma or later), Apple Silicon
