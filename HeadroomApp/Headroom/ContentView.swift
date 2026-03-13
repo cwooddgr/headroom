@@ -35,11 +35,11 @@ struct ContentView: View {
             db.load()
         }
         .task(id: "refresh") {
-            // Auto-refresh every 30 seconds
+            // Auto-refresh every 30 seconds (incremental)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 collector.checkStatus()
-                db.load()
+                db.refresh()
             }
         }
     }

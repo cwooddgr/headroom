@@ -84,19 +84,10 @@ final class CollectorManager {
         isLaunchAgentInstalled = plistExists
 
         if plistExists {
-            let process = Foundation.Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            process.arguments = ["list", LaunchAgentConfig.label]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = Pipe()
-            do {
-                try process.run()
-                process.waitUntilExit()
-                isLaunchAgentRunning = process.terminationStatus == 0
-            } catch {
-                isLaunchAgentRunning = false
-            }
+            // Avoid spawning launchctl every 30s. Instead, check if the DB
+            // has been modified recently (within last 2 minutes) — if so,
+            // the collector is alive and writing.
+            isLaunchAgentRunning = Self.isDatabaseRecentlyModified()
         } else {
             isLaunchAgentRunning = false
         }
@@ -107,6 +98,33 @@ final class CollectorManager {
             collectionMode = .inProcess
         } else {
             collectionMode = .none
+        }
+    }
+
+    /// Check if the database was modified within the last 2 minutes,
+    /// indicating the collector process is alive and writing samples.
+    private static func isDatabaseRecentlyModified() -> Bool {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: HeadroomPaths.databasePath),
+              let modDate = attrs[.modificationDate] as? Date else {
+            return false
+        }
+        return Date().timeIntervalSince(modDate) < 120
+    }
+
+    /// Full status check using launchctl — used only after install/uninstall,
+    /// not on the periodic refresh.
+    private func checkStatusViaLaunchctl() {
+        let process = Foundation.Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["list", LaunchAgentConfig.label]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            isLaunchAgentRunning = process.terminationStatus == 0
+        } catch {
+            isLaunchAgentRunning = false
         }
     }
 

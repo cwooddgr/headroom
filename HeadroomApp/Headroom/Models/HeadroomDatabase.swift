@@ -13,13 +13,21 @@ final class HeadroomDatabase {
     var errorMessage: String?
 
     private let dbPath: String
+    private var lastSampleId = 0
 
     init() {
         self.dbPath = HeadroomPaths.databasePath
     }
 
+    /// Full load — used on first launch and after data reset.
     func load() {
+        lastSampleId = 0
         guard FileManager.default.fileExists(atPath: dbPath) else {
+            samples = []
+            systemInfo = nil
+            topProcessesByMemory = []
+            topProcessesByCPU = []
+            analysis = nil
             errorMessage = nil
             isLoaded = true
             return
@@ -35,6 +43,7 @@ final class HeadroomDatabase {
 
         systemInfo = querySystemInfo(db!)
         samples = querySamples(db!)
+        lastSampleId = samples.last?.id ?? 0
         topProcessesByMemory = queryTopProcesses(db!, orderBy: "avg_mem")
         topProcessesByCPU = queryTopProcesses(db!, orderBy: "avg_cpu")
 
@@ -43,6 +52,36 @@ final class HeadroomDatabase {
         }
 
         isLoaded = true
+    }
+
+    /// Incremental refresh — only fetches new samples since last load.
+    /// Recomputes analysis and process rankings periodically.
+    func refresh() {
+        guard isLoaded, FileManager.default.fileExists(atPath: dbPath) else {
+            if !isLoaded { load() }
+            return
+        }
+
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return }
+        defer { sqlite3_close(db) }
+
+        let newSamples = querySamples(db!, afterId: lastSampleId)
+        if !newSamples.isEmpty {
+            samples.append(contentsOf: newSamples)
+            lastSampleId = newSamples.last?.id ?? lastSampleId
+
+            // Recompute analysis and processes every 10 new samples
+            if newSamples.count >= 10 || samples.count < 20 {
+                topProcessesByMemory = queryTopProcesses(db!, orderBy: "avg_mem")
+                topProcessesByCPU = queryTopProcesses(db!, orderBy: "avg_cpu")
+                analysis = computeAnalysis(db!)
+            }
+        }
+
+        if systemInfo == nil {
+            systemInfo = querySystemInfo(db!)
+        }
     }
 
     // MARK: - Latest values for dashboard
@@ -83,7 +122,7 @@ final class HeadroomDatabase {
         )
     }
 
-    private func querySamples(_ db: OpaquePointer) -> [Sample] {
+    private func querySamples(_ db: OpaquePointer, afterId: Int = 0) -> [Sample] {
         var stmt: OpaquePointer?
         let sql = """
             SELECT id, timestamp,
@@ -93,10 +132,11 @@ final class HeadroomDatabase {
                    memory_pageins, memory_pageouts,
                    thermal_pressure, cpu_temp_avg, gpu_temp_avg,
                    package_power_watts, sys_power_watts
-            FROM samples ORDER BY timestamp
+            FROM samples WHERE id > ?1 ORDER BY timestamp
             """
 
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        sqlite3_bind_int64(stmt, 1, Int64(afterId))
         defer { sqlite3_finalize(stmt) }
 
         let formatter = ISO8601DateFormatter()
