@@ -255,4 +255,54 @@ final class CollectorManager {
         collectionMode = isLaunchAgentRunning ? .launchAgent : .none
         statusMessage = "Monitoring stopped"
     }
+
+    // MARK: - Reset Data
+
+    func resetData() {
+        // Stop in-process engine so it releases the DB
+        let wasCollecting = isCollecting
+        if isCollecting {
+            engine?.stop()
+            engine = nil
+            isCollecting = false
+        }
+
+        // Stop LaunchAgent so it releases the DB
+        let hadAgent = isLaunchAgentRunning
+        if hadAgent {
+            let process = Foundation.Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            process.arguments = ["unload", LaunchAgentConfig.plistURL.path]
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            try? process.run()
+            process.waitUntilExit()
+        }
+
+        // Delete the database
+        try? FileManager.default.removeItem(atPath: HeadroomPaths.databasePath)
+        // Also remove WAL/SHM files
+        try? FileManager.default.removeItem(atPath: HeadroomPaths.databasePath + "-wal")
+        try? FileManager.default.removeItem(atPath: HeadroomPaths.databasePath + "-shm")
+
+        // Restart whatever was running
+        if hadAgent {
+            let process = Foundation.Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            process.arguments = ["load", LaunchAgentConfig.plistURL.path]
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            try? process.run()
+            process.waitUntilExit()
+            isLaunchAgentRunning = true
+            collectionMode = .launchAgent
+        } else if wasCollecting {
+            start()
+        } else {
+            collectionMode = .none
+        }
+
+        sampleCount = 0
+        statusMessage = "Data reset"
+    }
 }

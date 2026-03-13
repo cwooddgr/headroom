@@ -22,6 +22,7 @@ struct ContentView: View {
     @Environment(HeadroomDatabase.self) var db
     @Environment(CollectorManager.self) var collector
     @State private var selectedTab: Tab = .dashboard
+    @State private var showingResetConfirmation = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -142,9 +143,32 @@ struct ContentView: View {
             }
 
             if db.isLoaded {
-                Text("\(db.samples.count) samples")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                HStack {
+                    Text("\(db.samples.count) samples")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+
+                    Spacer()
+
+                    if db.samples.count > 0 {
+                        Button {
+                            showingResetConfirmation = true
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .confirmationDialog("Reset all collected data?", isPresented: $showingResetConfirmation) {
+                            Button("Reset Data", role: .destructive) {
+                                collector.resetData()
+                                db.load()
+                            }
+                        } message: {
+                            Text("This will delete all samples and start fresh. Collection will restart automatically.")
+                        }
+                    }
+                }
             }
 
             // Path mismatch warning
@@ -153,7 +177,7 @@ struct ContentView: View {
                     collector.uninstallLaunchAgent()
                     collector.installLaunchAgent()
                 } label: {
-                    Label("Reinstall (app moved)", systemImage: "exclamationmark.triangle.fill")
+                    Label("Reinstall Agent", systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.orange)
                         .frame(maxWidth: .infinity)
@@ -192,7 +216,7 @@ struct ContentView: View {
                     Button {
                         collector.installLaunchAgent()
                     } label: {
-                        Label("Install Background Agent", systemImage: "arrow.clockwise.circle")
+                        Label("Install Agent", systemImage: "arrow.clockwise.circle")
                             .font(.system(size: 11, weight: .medium))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 5)
@@ -218,7 +242,7 @@ struct ContentView: View {
                     Button {
                         collector.installLaunchAgent()
                     } label: {
-                        Label("Install Background Agent", systemImage: "arrow.clockwise.circle")
+                        Label("Install Agent", systemImage: "arrow.clockwise.circle")
                             .font(.system(size: 11, weight: .medium))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 5)
@@ -235,7 +259,7 @@ struct ContentView: View {
                             db.load()
                         }
                     } label: {
-                        Label("Start In-App Only", systemImage: "play.fill")
+                        Label("Start In-App", systemImage: "play.fill")
                             .font(.system(size: 11, weight: .medium))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 5)
