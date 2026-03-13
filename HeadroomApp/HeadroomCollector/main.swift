@@ -1,5 +1,10 @@
 import Foundation
 
+// Prevent App Nap from throttling our collection timer
+let activity = ProcessInfo.processInfo.beginActivity(
+    options: .userInitiatedAllowingIdleSystemSleep,
+    reason: "Headroom background metrics collection"
+)
 let engine = CollectionEngine { count in
     if count % 10 == 0 {
         hrLog("\u{1F4CA}", "Collector", "Samples collected: \(count)")
@@ -30,4 +35,6 @@ engine.start { success in
     if !success { exit(1) }
 }
 
-dispatchMain()
+withExtendedLifetime(activity) {
+    dispatchMain()
+}

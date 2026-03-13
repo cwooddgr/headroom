@@ -96,32 +96,55 @@ final class SMCReader {
 
     // MARK: - Key Discovery
 
+    // Known temperature keys to try if enumeration fails
+    private static let knownCPUTempKeys = ["Tc0p", "Tp01", "Tp05", "Tp09", "Tp0D", "Tc1c", "Tc2c", "Te05", "Te09"]
+    private static let knownGPUTempKeys = ["Tg0p", "Tg05", "Tg09", "Tg0D"]
+
     private func discoverTemperatureKeys() {
         let totalKeys = getKeyCount()
         hrLog("\u{1F50D}", "SMC", "Total SMC keys: \(totalKeys)")
 
-        for i in 0..<totalKeys {
-            guard let key = getKeyAtIndex(i) else { continue }
-            guard key.hasPrefix("T") else { continue }
+        if totalKeys > 0 {
+            // Enumeration-based discovery
+            for i in 0..<totalKeys {
+                guard let key = getKeyAtIndex(i) else { continue }
+                guard key.hasPrefix("T") else { continue }
 
-            // Get key info to check type
-            guard let info = readKeyInfo(key) else { continue }
+                guard let info = readKeyInfo(key) else { continue }
+                guard info.dataType == typeFloat, info.dataSize == 4 else { continue }
+                guard let temp = readFloatKey(key), temp > 0 && temp < 130 else { continue }
 
-            // Only read "flt " type keys (f32 little-endian temperature sensors)
-            guard info.dataType == typeFloat, info.dataSize == 4 else { continue }
-
-            // Try reading the value
-            guard let temp = readFloatKey(key), temp > 0 && temp < 130 else { continue }
-
-            if key.hasPrefix("Tp") || key.hasPrefix("Tc") || key.hasPrefix("Te") {
-                cpuTempKeys.append(key)
-            } else if key.hasPrefix("Tg") {
-                gpuTempKeys.append(key)
+                if key.hasPrefix("Tp") || key.hasPrefix("Tc") || key.hasPrefix("Te") {
+                    cpuTempKeys.append(key)
+                } else if key.hasPrefix("Tg") {
+                    gpuTempKeys.append(key)
+                }
             }
+        }
+
+        // If enumeration found nothing, try known keys directly
+        if cpuTempKeys.isEmpty && gpuTempKeys.isEmpty {
+            hrLog("\u{26A0}\u{FE0F}", "SMC", "Key enumeration found 0 temp keys, trying known keys directly")
+            discoverFromKnownKeys()
         }
 
         hrLog("\u{1F321}\u{FE0F}", "SMC", "CPU temp keys (\(cpuTempKeys.count)): \(cpuTempKeys)")
         hrLog("\u{1F321}\u{FE0F}", "SMC", "GPU temp keys (\(gpuTempKeys.count)): \(gpuTempKeys)")
+    }
+
+    private func discoverFromKnownKeys() {
+        for key in Self.knownCPUTempKeys {
+            if let temp = readFloatKey(key), temp > 0 && temp < 130 {
+                cpuTempKeys.append(key)
+                hrLog("\u{2705}", "SMC", "Known key \(key) returned \(String(format: "%.1f", temp))°C")
+            }
+        }
+        for key in Self.knownGPUTempKeys {
+            if let temp = readFloatKey(key), temp > 0 && temp < 130 {
+                gpuTempKeys.append(key)
+                hrLog("\u{2705}", "SMC", "Known key \(key) returned \(String(format: "%.1f", temp))°C")
+            }
+        }
     }
 
     // MARK: - Temperature Reading
@@ -180,7 +203,13 @@ final class SMCReader {
             &output,
             &outputSize
         )
-        guard result == kIOReturnSuccess else { return nil }
+        guard result == kIOReturnSuccess else {
+            // Log the key being read for diagnosis (first 4 bytes = key FourCC)
+            let keyBytes = [input[0], input[1], input[2], input[3]]
+            let keyStr = String(bytes: keyBytes, encoding: .ascii) ?? "????"
+            hrLog("\u{274C}", "SMC", "IOConnectCallStructMethod failed for key '\(keyStr)': 0x\(String(result, radix: 16))")
+            return nil
+        }
         return output
     }
 

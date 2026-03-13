@@ -73,7 +73,7 @@ final class CollectionEngine: @unchecked Sendable {
 
             // Start 30-second collection timer
             let t = DispatchSource.makeTimerSource(queue: queue)
-            t.schedule(deadline: .now() + 30, repeating: 30)
+            t.schedule(deadline: .now() + 30, repeating: 30, leeway: .seconds(5))
             t.setEventHandler { [weak self] in
                 self?.tick()
             }

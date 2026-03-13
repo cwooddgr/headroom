@@ -3,15 +3,24 @@ import IOKit
 
 // MARK: - IOReport Dynamic Symbol Loading
 
-// Try multiple approaches: explicit IOKit path, then RTLD_DEFAULT (shared cache)
+// Try multiple approaches: libIOReport dylib (macOS 26+), explicit IOKit path, then RTLD_DEFAULT
 nonisolated(unsafe) private let iokitHandle: UnsafeMutableRawPointer? = {
+    // macOS 26+: IOReport symbols moved to standalone dylib
+    if let h = dlopen("/usr/lib/libIOReport.dylib", RTLD_NOW) {
+        hrLog("\u{1F50C}", "Metrics", "Loaded IOReport from /usr/lib/libIOReport.dylib")
+        return h
+    }
+    // macOS 14-15: IOReport in IOKit framework
     if let h = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW) {
+        hrLog("\u{1F50C}", "Metrics", "Loaded IOReport from IOKit.framework")
         return h
     }
     if let h = dlopen("/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit", RTLD_NOW) {
+        hrLog("\u{1F50C}", "Metrics", "Loaded IOReport from IOKit.framework/Versions/A")
         return h
     }
     // On macOS 15+, frameworks live in shared cache — use RTLD_DEFAULT via nil handle
+    hrLog("\u{26A0}\u{FE0F}", "Metrics", "No explicit IOReport library found, falling back to RTLD_DEFAULT")
     return nil
 }()
 
