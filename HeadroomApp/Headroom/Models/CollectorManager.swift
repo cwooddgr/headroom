@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 @preconcurrency import ServiceManagement
 import SwiftUI
@@ -147,6 +148,12 @@ final class CollectorManager {
         }
 
         do {
+            // Strip quarantine xattr from the collector binary — launchd refuses
+            // to spawn quarantined executables (exit 78) even though they run fine
+            // when launched directly. All browser-downloaded DMGs/ZIPs are quarantined.
+            let binaryPath = LaunchAgentConfig.collectorBinaryURL.path
+            removexattr(binaryPath, "com.apple.quarantine", 0)
+
             // Ensure ~/Library/LaunchAgents exists
             let launchAgentsDir = LaunchAgentConfig.plistURL.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true)
