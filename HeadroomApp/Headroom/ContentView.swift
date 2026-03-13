@@ -1,4 +1,3 @@
-import ServiceManagement
 import SwiftUI
 
 enum Tab: String, CaseIterable, Identifiable, Hashable {
@@ -172,12 +171,16 @@ struct ContentView: View {
                 }
             }
 
-            // Requires approval warning
-            if collector.isAgentRequiresApproval {
+            // Path mismatch warning (agent installed but pointing to a different app location)
+            if collector.isLaunchAgentInstalled && !collector.launchAgentPathMatchesBundle {
                 Button {
-                    SMAppService.openSystemSettingsLoginItems()
+                    Task { await collector.uninstallLaunchAgent() }
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        await collector.installLaunchAgent()
+                    }
                 } label: {
-                    Label("Approve in Settings", systemImage: "exclamationmark.triangle.fill")
+                    Label("Reinstall Agent", systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.orange)
                         .frame(maxWidth: .infinity)
@@ -201,9 +204,9 @@ struct ContentView: View {
                 switch collector.collectionMode {
                 case .launchAgent:
                     Button {
-                        Task { await collector.disableAgent() }
+                        Task { await collector.uninstallLaunchAgent() }
                     } label: {
-                        Label("Disable Agent", systemImage: "xmark.circle")
+                        Label("Remove Agent", systemImage: "xmark.circle")
                             .font(.system(size: 11, weight: .medium))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 5)
@@ -214,9 +217,9 @@ struct ContentView: View {
 
                 case .inProcess:
                     Button {
-                        Task { await collector.enableAgent() }
+                        Task { await collector.installLaunchAgent() }
                     } label: {
-                        Label("Enable Agent", systemImage: "arrow.clockwise.circle")
+                        Label("Install Agent", systemImage: "arrow.clockwise.circle")
                             .font(.system(size: 11, weight: .medium))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 5)
@@ -240,9 +243,9 @@ struct ContentView: View {
 
                 case .none:
                     Button {
-                        Task { await collector.enableAgent() }
+                        Task { await collector.installLaunchAgent() }
                     } label: {
-                        Label("Enable Agent", systemImage: "arrow.clockwise.circle")
+                        Label("Install Agent", systemImage: "arrow.clockwise.circle")
                             .font(.system(size: 11, weight: .medium))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 5)

@@ -28,8 +28,8 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 12) {
                 statusRow(
                     label: "Background Agent",
-                    detail: collector.isAgentEnabled ? "Running" : collector.isAgentRequiresApproval ? "Needs approval" : "Not enabled",
-                    ok: collector.isAgentEnabled
+                    detail: collector.isLaunchAgentRunning ? "Running" : collector.isLaunchAgentInstalled ? "Installed (not running)" : "Not installed",
+                    ok: collector.isLaunchAgentRunning
                 )
                 statusRow(
                     label: "Database",
@@ -65,9 +65,9 @@ struct OnboardingView: View {
             } else {
                 VStack(spacing: 12) {
                     Button {
-                        Task { await collector.enableAgent() }
+                        Task { await collector.installLaunchAgent() }
                     } label: {
-                        Label("Enable Background Agent", systemImage: "arrow.clockwise.circle")
+                        Label("Install Background Agent", systemImage: "arrow.clockwise.circle")
                             .font(.system(size: 15, weight: .semibold))
                             .padding(.horizontal, 24)
                             .padding(.vertical, 10)

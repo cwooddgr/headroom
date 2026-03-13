@@ -10,9 +10,29 @@ enum CollectionMode {
     case none
 }
 
-// MARK: - Agent Service
+// MARK: - LaunchAgent Config
 
-@MainActor private let agentService = SMAppService.agent(plistName: "co.dgrlabs.headroom.collector.plist")
+private enum LaunchAgentConfig {
+    static let label = "co.dgrlabs.headroom.collector"
+    static let plistName = "\(label).plist"
+
+    static var plistURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents")
+            .appendingPathComponent(plistName)
+    }
+
+    static var collectorBinaryURL: URL {
+        Bundle.main.bundleURL
+            .appendingPathComponent("Contents/MacOS/HeadroomCollector")
+    }
+
+    static var logPath: String {
+        let support = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Headroom")
+        return support.appendingPathComponent("collector.log").path
+    }
+}
 
 // MARK: - Collector Manager (MainActor, Observable)
 
@@ -23,25 +43,46 @@ final class CollectorManager {
     var statusMessage = ""
     var sampleCount = 0
     var collectionMode: CollectionMode = .none
-    var agentStatus: SMAppService.Status = .notRegistered
 
     private var engine: CollectionEngine?
-    private var hasAttemptedRecovery = false
 
     var dbExists: Bool {
         FileManager.default.fileExists(atPath: HeadroomPaths.databasePath)
     }
 
-    var isAgentEnabled: Bool {
-        agentStatus == .enabled
+    var isLaunchAgentInstalled: Bool {
+        FileManager.default.fileExists(atPath: LaunchAgentConfig.plistURL.path)
     }
 
-    var isAgentRequiresApproval: Bool {
-        agentStatus == .requiresApproval
+    var isLaunchAgentRunning: Bool {
+        // Check if launchctl knows about the agent and it has a PID
+        let process = Foundation.Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["list", LaunchAgentConfig.label]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+
+    var launchAgentPathMatchesBundle: Bool {
+        guard let data = try? Data(contentsOf: LaunchAgentConfig.plistURL),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let args = plist["ProgramArguments"] as? [String],
+              let path = args.first else {
+            return false
+        }
+        return path == LaunchAgentConfig.collectorBinaryURL.path
     }
 
     var isDaemonRunning: Bool {
-        isAgentEnabled || isCollecting
+        isLaunchAgentRunning || isCollecting
     }
 
     var isFullySetUp: Bool { isDaemonRunning && dbExists }
@@ -56,7 +97,7 @@ final class CollectorManager {
     }
 
     /// Returns true if the app is running from a translocated or read-only location
-    /// where SMAppService registration would fail.
+    /// where LaunchAgent installation would fail or point to a temporary path.
     var isTranslocatedOrReadOnly: Bool {
         let path = Bundle.main.bundlePath
         return path.hasPrefix("/private/var/folders") || path.hasPrefix("/Volumes/")
@@ -65,52 +106,21 @@ final class CollectorManager {
     // MARK: - Status Check
 
     func checkStatus() {
-        agentStatus = agentService.status
+        // Check if installed plist exists and DB was recently modified
+        if isLaunchAgentInstalled {
+            let dbRecentlyModified: Bool = {
+                guard let attrs = try? FileManager.default.attributesOfItem(atPath: HeadroomPaths.databasePath),
+                      let modDate = attrs[.modificationDate] as? Date else {
+                    return false
+                }
+                return Date().timeIntervalSince(modDate) < 120
+            }()
 
-        // SMAppService can report .enabled even when the agent is stuck in
-        // launchd's "spawn failed" state (e.g. after app translocation).
-        // If the agent claims enabled but no DB writes in 2 minutes, cycle it once.
-        if isAgentEnabled && !hasAttemptedRecovery && !isAgentActuallyWriting() {
-            hasAttemptedRecovery = true
-            Task { await recoverStuckAgent() }
-            return
-        }
-
-        if isAgentEnabled {
-            collectionMode = .launchAgent
-        } else if isCollecting {
-            collectionMode = .inProcess
-        } else {
-            collectionMode = .none
-        }
-    }
-
-    /// Check if the database has been modified recently, indicating the agent is alive.
-    private func isAgentActuallyWriting() -> Bool {
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: HeadroomPaths.databasePath),
-              let modDate = attrs[.modificationDate] as? Date else {
-            return false
-        }
-        return Date().timeIntervalSince(modDate) < 120
-    }
-
-    /// Unregister and re-register the agent to recover from a stuck spawn state.
-    private func recoverStuckAgent() async {
-        do {
-            try await agentService.unregister()
-            try? await Task.sleep(for: .milliseconds(500))
-            try agentService.register()
-            for _ in 0..<20 {
-                agentStatus = agentService.status
-                if isAgentEnabled { break }
-                try? await Task.sleep(for: .milliseconds(100))
+            if dbRecentlyModified || isLaunchAgentRunning {
+                collectionMode = .launchAgent
+            } else {
+                collectionMode = .none
             }
-        } catch {
-            // Recovery failed; fall through to normal status update
-        }
-        agentStatus = agentService.status
-        if isAgentEnabled {
-            collectionMode = .launchAgent
         } else if isCollecting {
             collectionMode = .inProcess
         } else {
@@ -118,11 +128,11 @@ final class CollectorManager {
         }
     }
 
-    // MARK: - Agent Enable/Disable
+    // MARK: - LaunchAgent Install/Uninstall
 
-    func enableAgent() async {
+    func installLaunchAgent() async {
         guard !isTranslocatedOrReadOnly else {
-            statusMessage = "Move Headroom to /Applications before enabling the agent"
+            statusMessage = "Move Headroom to /Applications before installing the agent"
             return
         }
 
@@ -137,69 +147,101 @@ final class CollectorManager {
         }
 
         do {
-            try agentService.register()
-            // SMAppService.status can lag after register(); poll briefly
-            for _ in 0..<20 {
-                agentStatus = agentService.status
-                if isAgentEnabled { break }
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            if isAgentEnabled {
+            // Ensure ~/Library/LaunchAgents exists
+            let launchAgentsDir = LaunchAgentConfig.plistURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true)
+
+            // Build the plist dictionary
+            let plist: [String: Any] = [
+                "Label": LaunchAgentConfig.label,
+                "ProgramArguments": [LaunchAgentConfig.collectorBinaryURL.path],
+                "RunAtLoad": true,
+                "KeepAlive": true,
+                "StandardOutPath": LaunchAgentConfig.logPath,
+                "StandardErrorPath": LaunchAgentConfig.logPath,
+            ]
+
+            let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            try data.write(to: LaunchAgentConfig.plistURL, options: .atomic)
+
+            // Load via launchctl
+            let process = Foundation.Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            process.arguments = ["load", LaunchAgentConfig.plistURL.path]
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            try process.run()
+            process.waitUntilExit()
+
+            if process.terminationStatus == 0 {
                 collectionMode = .launchAgent
-                statusMessage = "Background agent enabled"
-            } else if isAgentRequiresApproval {
-                statusMessage = "Approve Headroom in System Settings > Login Items"
+                statusMessage = "Background agent installed"
+            } else {
+                statusMessage = "launchctl load failed (exit \(process.terminationStatus))"
             }
         } catch {
-            statusMessage = "Failed to enable agent: \(error.localizedDescription)"
+            statusMessage = "Failed to install agent: \(error.localizedDescription)"
         }
 
         isPerformingAction = false
     }
 
-    func disableAgent() async {
+    func uninstallLaunchAgent() async {
         isPerformingAction = true
         statusMessage = ""
 
-        do {
-            try await agentService.unregister()
-            // SMAppService.status can lag after unregister(); poll briefly
-            for _ in 0..<20 {
-                agentStatus = agentService.status
-                if !isAgentEnabled { break }
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-        } catch {
-            statusMessage = "Failed to disable agent: \(error.localizedDescription)"
+        // Unload via launchctl
+        if isLaunchAgentInstalled {
+            let process = Foundation.Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            process.arguments = ["unload", LaunchAgentConfig.plistURL.path]
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            try? process.run()
+            process.waitUntilExit()
         }
+
+        // Delete the plist
+        try? FileManager.default.removeItem(at: LaunchAgentConfig.plistURL)
+
         collectionMode = isCollecting ? .inProcess : .none
-        if statusMessage.isEmpty {
-            statusMessage = "Background agent disabled"
-        }
+        statusMessage = "Background agent removed"
         isPerformingAction = false
     }
 
     // MARK: - Legacy Migration
 
-    /// One-time cleanup of any plist left by the old manual LaunchAgent approach.
+    /// Clean up any SMAppService registration left by v2.0/2.0.1.
     func migrateLegacyAgent() {
-        let legacyPlistURL = FileManager.default.homeDirectoryForCurrentUser
+        // Try to unregister the SMAppService agent from v2.0/2.0.1
+        if #available(macOS 13.0, *) {
+            do {
+                try SMAppService.agent(plistName: "co.dgrlabs.headroom.collector.plist").unregister()
+            } catch {
+                // Not registered or already cleaned up — ignore
+            }
+        }
+
+        // Remove any leftover embedded-style plist that SMAppService may have placed
+        let smPlistURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents")
             .appendingPathComponent("co.dgrlabs.headroom.collector.plist")
 
-        guard FileManager.default.fileExists(atPath: legacyPlistURL.path) else { return }
+        // Only remove if it's the old BundleProgram-style plist (not our new ProgramArguments one)
+        if let data = try? Data(contentsOf: smPlistURL),
+           let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+           plist["BundleProgram"] != nil {
+            // Unload first
+            let process = Foundation.Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            process.arguments = ["unload", smPlistURL.path]
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            try? process.run()
+            process.waitUntilExit()
 
-        // Unload the old agent
-        let process = Foundation.Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        process.arguments = ["unload", legacyPlistURL.path]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-        try? process.run()
-        process.waitUntilExit()
-
-        // Delete the old plist
-        try? FileManager.default.removeItem(at: legacyPlistURL)
+            try? FileManager.default.removeItem(at: smPlistURL)
+        }
     }
 
     // MARK: - In-Process Collection
@@ -208,7 +250,7 @@ final class CollectorManager {
         guard !isCollecting, !isPerformingAction else { return }
 
         // Don't start in-process if agent is running
-        if isAgentEnabled { return }
+        if isLaunchAgentRunning { return }
 
         isPerformingAction = true
         statusMessage = ""
@@ -240,7 +282,7 @@ final class CollectorManager {
         engine?.stop()
         engine = nil
         isCollecting = false
-        collectionMode = isAgentEnabled ? .launchAgent : .none
+        collectionMode = isLaunchAgentRunning ? .launchAgent : .none
         statusMessage = "Monitoring stopped"
     }
 
@@ -256,9 +298,15 @@ final class CollectorManager {
         }
 
         // Stop agent so it releases the DB
-        let hadAgent = isAgentEnabled
+        let hadAgent = isLaunchAgentInstalled
         if hadAgent {
-            try? agentService.unregister()
+            let process = Foundation.Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            process.arguments = ["unload", LaunchAgentConfig.plistURL.path]
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            try? process.run()
+            process.waitUntilExit()
         }
 
         // Delete the database
@@ -269,9 +317,14 @@ final class CollectorManager {
 
         // Restart whatever was running
         if hadAgent {
-            try? agentService.register()
-            agentStatus = agentService.status
-            collectionMode = isAgentEnabled ? .launchAgent : .none
+            let process = Foundation.Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            process.arguments = ["load", LaunchAgentConfig.plistURL.path]
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            try? process.run()
+            process.waitUntilExit()
+            collectionMode = isLaunchAgentRunning ? .launchAgent : .none
         } else if wasCollecting {
             start()
         } else {

@@ -34,7 +34,6 @@
 		CC1000000000000000000007 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* Log.swift */; };
 		CC1000000000000000000008 /* CollectionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000002 /* CollectionEngine.swift */; };
 		CC1000000000000000000009 /* HeadroomCollector in CopyFiles */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000003 /* HeadroomCollector */; };
-		DD100000000000000000000A /* co.dgrlabs.headroom.collector.plist in Copy LaunchAgents */ = {isa = PBXBuildFile; fileRef = DD000000000000000000000A /* co.dgrlabs.headroom.collector.plist */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,17 +56,6 @@
 				CC1000000000000000000009 /* HeadroomCollector in CopyFiles */,
 			);
 			name = "Copy HeadroomCollector";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		DD700000000000000000000A /* Copy LaunchAgents */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "Contents/Library/LaunchAgents";
-			dstSubfolderSpec = 1;
-			files = (
-				DD100000000000000000000A /* co.dgrlabs.headroom.collector.plist in Copy LaunchAgents */,
-			);
-			name = "Copy LaunchAgents";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -97,7 +85,6 @@
 		CC0000000000000000000002 /* CollectionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionEngine.swift; sourceTree = "<group>"; };
 		CC0000000000000000000003 /* HeadroomCollector */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = HeadroomCollector; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC0000000000000000000004 /* HeadroomCollector.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HeadroomCollector.entitlements; sourceTree = "<group>"; };
-		DD000000000000000000000A /* co.dgrlabs.headroom.collector.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = co.dgrlabs.headroom.collector.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -136,19 +123,10 @@
 				A10000000000000000000002 /* ContentView.swift */,
 				C10000000000000000000003 /* Models */,
 				C10000000000000000000004 /* Views */,
-				DD200000000000000000000A /* LaunchAgents */,
 				A1000000000000000000000B /* Assets.xcassets */,
 				A1000000000000000000000C /* Headroom.entitlements */,
 			);
 			path = Headroom;
-			sourceTree = "<group>";
-		};
-		DD200000000000000000000A /* LaunchAgents */ = {
-			isa = PBXGroup;
-			children = (
-				DD000000000000000000000A /* co.dgrlabs.headroom.collector.plist */,
-			);
-			path = LaunchAgents;
 			sourceTree = "<group>";
 		};
 		C10000000000000000000003 /* Models */ = {
@@ -224,7 +202,6 @@
 				D10000000000000000000002 /* Frameworks */,
 				D10000000000000000000003 /* Resources */,
 				CC7000000000000000000001 /* Copy HeadroomCollector */,
-				DD700000000000000000000A /* Copy LaunchAgents */,
 			);
 			buildRules = (
 			);

@@ -15,7 +15,7 @@ struct HeadroomApp: App {
                 .task {
                     collector.migrateLegacyAgent()
                     collector.checkStatus()
-                    if collector.isAgentEnabled {
+                    if collector.isLaunchAgentRunning {
                         collector.collectionMode = .launchAgent
                     } else if collector.dbExists {
                         collector.start() // fallback to in-process
