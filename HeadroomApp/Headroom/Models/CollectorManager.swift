@@ -26,6 +26,7 @@ final class CollectorManager {
     var agentStatus: SMAppService.Status = .notRegistered
 
     private var engine: CollectionEngine?
+    private var hasAttemptedRecovery = false
 
     var dbExists: Bool {
         FileManager.default.fileExists(atPath: HeadroomPaths.databasePath)
@@ -66,6 +67,48 @@ final class CollectorManager {
     func checkStatus() {
         agentStatus = agentService.status
 
+        // SMAppService can report .enabled even when the agent is stuck in
+        // launchd's "spawn failed" state (e.g. after app translocation).
+        // If the agent claims enabled but no DB writes in 2 minutes, cycle it once.
+        if isAgentEnabled && !hasAttemptedRecovery && !isAgentActuallyWriting() {
+            hasAttemptedRecovery = true
+            Task { await recoverStuckAgent() }
+            return
+        }
+
+        if isAgentEnabled {
+            collectionMode = .launchAgent
+        } else if isCollecting {
+            collectionMode = .inProcess
+        } else {
+            collectionMode = .none
+        }
+    }
+
+    /// Check if the database has been modified recently, indicating the agent is alive.
+    private func isAgentActuallyWriting() -> Bool {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: HeadroomPaths.databasePath),
+              let modDate = attrs[.modificationDate] as? Date else {
+            return false
+        }
+        return Date().timeIntervalSince(modDate) < 120
+    }
+
+    /// Unregister and re-register the agent to recover from a stuck spawn state.
+    private func recoverStuckAgent() async {
+        do {
+            try await agentService.unregister()
+            try? await Task.sleep(for: .milliseconds(500))
+            try agentService.register()
+            for _ in 0..<20 {
+                agentStatus = agentService.status
+                if isAgentEnabled { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        } catch {
+            // Recovery failed; fall through to normal status update
+        }
+        agentStatus = agentService.status
         if isAgentEnabled {
             collectionMode = .launchAgent
         } else if isCollecting {
