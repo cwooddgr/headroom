@@ -25,7 +25,40 @@
 		B30000000000000000000002 /* SMCReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* SMCReader.swift */; };
 		B30000000000000000000003 /* ProcessSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* ProcessSnapshot.swift */; };
 		B30000000000000000000004 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* Log.swift */; };
+		CC1000000000000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000001 /* main.swift */; };
+		CC1000000000000000000002 /* CollectionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000002 /* CollectionEngine.swift */; };
+		CC1000000000000000000003 /* DatabaseSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* DatabaseSchema.swift */; };
+		CC1000000000000000000004 /* MetricsCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* MetricsCollector.swift */; };
+		CC1000000000000000000005 /* SMCReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* SMCReader.swift */; };
+		CC1000000000000000000006 /* ProcessSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* ProcessSnapshot.swift */; };
+		CC1000000000000000000007 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* Log.swift */; };
+		CC1000000000000000000008 /* CollectionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000002 /* CollectionEngine.swift */; };
+		CC1000000000000000000009 /* HeadroomCollector in CopyFiles */ = {isa = PBXBuildFile; fileRef = CC0000000000000000000003 /* HeadroomCollector */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		CC9000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FA0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CC4000000000000000000001;
+			remoteInfo = HeadroomCollector;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CC7000000000000000000001 /* Copy HeadroomCollector */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 6;
+			files = (
+				CC1000000000000000000009 /* HeadroomCollector in CopyFiles */,
+			);
+			name = "Copy HeadroomCollector";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A10000000000000000000001 /* HeadroomApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadroomApp.swift; sourceTree = "<group>"; };
@@ -48,10 +81,20 @@
 		A20000000000000000000005 /* SMCReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMCReader.swift; sourceTree = "<group>"; };
 		A20000000000000000000006 /* ProcessSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessSnapshot.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
+		CC0000000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		CC0000000000000000000002 /* CollectionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionEngine.swift; sourceTree = "<group>"; };
+		CC0000000000000000000003 /* HeadroomCollector */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = HeadroomCollector; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		D10000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CC3000000000000000000002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -67,6 +110,7 @@
 				C10000000000000000000002 /* Headroom */,
 				C20000000000000000000001 /* Shared */,
 				C20000000000000000000002 /* HeadroomHelper */,
+				CC2000000000000000000001 /* HeadroomCollector */,
 				C10000000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -112,6 +156,7 @@
 			isa = PBXGroup;
 			children = (
 				A1000000000000000000000D /* Headroom.app */,
+				CC0000000000000000000003 /* HeadroomCollector */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -121,6 +166,7 @@
 			children = (
 				A20000000000000000000002 /* DatabaseSchema.swift */,
 				A20000000000000000000007 /* Log.swift */,
+				CC0000000000000000000002 /* CollectionEngine.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -135,6 +181,14 @@
 			path = HeadroomHelper;
 			sourceTree = "<group>";
 		};
+		CC2000000000000000000001 /* HeadroomCollector */ = {
+			isa = PBXGroup;
+			children = (
+				CC0000000000000000000001 /* main.swift */,
+			);
+			path = HeadroomCollector;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -145,15 +199,33 @@
 				D10000000000000000000001 /* Sources */,
 				D10000000000000000000002 /* Frameworks */,
 				D10000000000000000000003 /* Resources */,
+				CC7000000000000000000001 /* Copy HeadroomCollector */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				CC8000000000000000000001 /* PBXTargetDependency */,
 			);
 			name = Headroom;
 			productName = Headroom;
 			productReference = A1000000000000000000000D /* Headroom.app */;
 			productType = "com.apple.product-type.application";
+		};
+		CC4000000000000000000001 /* HeadroomCollector */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CC6000000000000000000001 /* Build configuration list for PBXNativeTarget "HeadroomCollector" */;
+			buildPhases = (
+				CC3000000000000000000001 /* Sources */,
+				CC3000000000000000000002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HeadroomCollector;
+			productName = HeadroomCollector;
+			productReference = CC0000000000000000000003 /* HeadroomCollector */;
+			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -166,6 +238,9 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					DA0000000000000000000001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					CC4000000000000000000001 = {
 						CreatedOnToolsVersion = 16.0;
 					};
 				};
@@ -184,6 +259,7 @@
 			projectRoot = "";
 			targets = (
 				DA0000000000000000000001 /* Headroom */,
+				CC4000000000000000000001 /* HeadroomCollector */,
 			);
 		};
 /* End PBXProject section */
@@ -221,10 +297,33 @@
 				B30000000000000000000002 /* SMCReader.swift in Sources */,
 				B30000000000000000000003 /* ProcessSnapshot.swift in Sources */,
 				B30000000000000000000004 /* Log.swift in Sources */,
+				CC1000000000000000000008 /* CollectionEngine.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CC3000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CC1000000000000000000001 /* main.swift in Sources */,
+				CC1000000000000000000002 /* CollectionEngine.swift in Sources */,
+				CC1000000000000000000003 /* DatabaseSchema.swift in Sources */,
+				CC1000000000000000000004 /* MetricsCollector.swift in Sources */,
+				CC1000000000000000000005 /* SMCReader.swift in Sources */,
+				CC1000000000000000000006 /* ProcessSnapshot.swift in Sources */,
+				CC1000000000000000000007 /* Log.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		CC8000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CC4000000000000000000001 /* HeadroomCollector */;
+			targetProxy = CC9000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		E10000000000000000000001 /* Debug */ = {
@@ -389,6 +488,32 @@
 			};
 			name = Release;
 		};
+		CC5000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 2CTUXD4C44;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = co.dgrlabs.headroom.collector;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		CC5000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 2CTUXD4C44;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = co.dgrlabs.headroom.collector;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -406,6 +531,15 @@
 			buildConfigurations = (
 				E10000000000000000000003 /* Debug */,
 				E10000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CC6000000000000000000001 /* Build configuration list for PBXNativeTarget "HeadroomCollector" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CC5000000000000000000001 /* Debug */,
+				CC5000000000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

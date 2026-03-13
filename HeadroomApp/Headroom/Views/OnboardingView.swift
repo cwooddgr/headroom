@@ -27,9 +27,9 @@ struct OnboardingView: View {
             // Status
             VStack(alignment: .leading, spacing: 12) {
                 statusRow(
-                    label: "Monitor",
-                    detail: collector.statusDescription,
-                    ok: collector.isCollecting
+                    label: "Background Agent",
+                    detail: collector.isLaunchAgentRunning ? "Running" : collector.isLaunchAgentInstalled ? "Installed (not running)" : "Not installed",
+                    ok: collector.isLaunchAgentRunning
                 )
                 statusRow(
                     label: "Database",
@@ -46,38 +46,49 @@ struct OnboardingView: View {
                 VStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.regular)
-                    Text("Starting monitor...")
+                    Text("Setting up...")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
-            } else if collector.isCollecting {
+            } else if collector.isDaemonRunning {
                 VStack(spacing: 8) {
                     Label("Monitoring Active", systemImage: "checkmark.circle.fill")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.green)
 
                     if db.samples.isEmpty {
-                        Text("Collecting first samples — data will appear shortly.")
+                        Text("Collecting first samples \u{2014} data will appear shortly.")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     }
                 }
             } else {
-                Button {
-                    collector.start()
-                    Task {
-                        try? await Task.sleep(for: .seconds(35))
-                        db.load()
+                VStack(spacing: 12) {
+                    Button {
+                        collector.installLaunchAgent()
+                    } label: {
+                        Label("Install Background Agent", systemImage: "arrow.clockwise.circle")
+                            .font(.system(size: 15, weight: .semibold))
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
                     }
-                } label: {
-                    Label("Start Monitoring", systemImage: "play.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 10)
-                        .contentShape(Rectangle())
+                    .buttonStyle(.borderedProminent)
+                    .tint(.cyan)
+
+                    Button {
+                        collector.start()
+                        Task {
+                            try? await Task.sleep(for: .seconds(35))
+                            db.load()
+                        }
+                    } label: {
+                        Text("Use in-app monitoring only")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.cyan)
             }
 
             // Status message

@@ -1,269 +1,33 @@
 import Foundation
-import SQLite3
 import SwiftUI
 
-// MARK: - Database Path
+// MARK: - Collection Mode
 
-enum HeadroomPaths {
-    static let databaseDirectory: URL = {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
-        return appSupport.appendingPathComponent("Headroom")
-    }()
-
-    static let databaseURL = databaseDirectory.appendingPathComponent("headroom.db")
-    static var databasePath: String { databaseURL.path }
+enum CollectionMode {
+    case launchAgent
+    case inProcess
+    case none
 }
 
-// MARK: - Background Collection Engine
+// MARK: - LaunchAgent Configuration
 
-private final class CollectionEngine: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "co.dgrlabs.headroom.collector")
-    private var metricsCollector: MetricsCollector?
-    private var processSnapshotCollector: ProcessSnapshot?
-    private var db: OpaquePointer?
-    private var timer: DispatchSourceTimer?
-    private var sampleCount = 0
-    private let processSnapshotInterval = 10 // every 10 samples = 5 minutes
+private enum LaunchAgentConfig {
+    static let label = "co.dgrlabs.headroom.collector"
 
-    let onSampleCollected: @Sendable (Int) -> Void
-
-    init(onSampleCollected: @escaping @Sendable (Int) -> Void) {
-        self.onSampleCollected = onSampleCollected
+    static var plistURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents")
+            .appendingPathComponent("\(label).plist")
     }
 
-    func start(completion: @escaping @Sendable (Bool) -> Void) {
-        queue.async { [self] in
-            // Ensure directory exists
-            try? FileManager.default.createDirectory(
-                at: HeadroomPaths.databaseDirectory,
-                withIntermediateDirectories: true
-            )
-
-            // Open database
-            var dbPtr: OpaquePointer?
-            guard sqlite3_open(HeadroomPaths.databasePath, &dbPtr) == SQLITE_OK,
-                  let dbPtr else {
-                completion(false)
-                return
-            }
-
-            DatabaseSchema.enableWAL(dbPtr)
-            guard DatabaseSchema.createTables(dbPtr) else {
-                sqlite3_close(dbPtr)
-                completion(false)
-                return
-            }
-
-            // One-time cleanup: delete process snapshots with bogus CPU percentages
-            // (from before the delta-based CPU calculation fix)
-            Self.cleanupBadProcessData(dbPtr)
-
-            db = dbPtr
-            collectSystemInfo(dbPtr)
-
-            let mc = MetricsCollector()
-            let ps = ProcessSnapshot()
-            metricsCollector = mc
-            processSnapshotCollector = ps
-
-            // IOReport needs two samples for delta — take baseline
-            _ = mc.collectSample()
-            sampleCount = 0
-
-            // Start 30-second collection timer
-            let t = DispatchSource.makeTimerSource(queue: queue)
-            t.schedule(deadline: .now() + 30, repeating: 30)
-            t.setEventHandler { [weak self] in
-                self?.tick()
-            }
-            timer = t
-            t.resume()
-
-            completion(true)
-        }
+    static var collectorBinaryURL: URL? {
+        Bundle.main.executableURL?.deletingLastPathComponent()
+            .appendingPathComponent("HeadroomCollector")
     }
 
-    func stop() {
-        queue.sync {
-            timer?.cancel()
-            timer = nil
-            metricsCollector = nil
-            processSnapshotCollector = nil
-            if let db {
-                sqlite3_close(db)
-                self.db = nil
-            }
-        }
-    }
-
-    private func tick() {
-        guard let db, let mc = metricsCollector else { return }
-
-        let sample = mc.collectSample()
-        let timestamp = Self.currentTimestamp()
-
-        let inserted = DatabaseSchema.insertSample(
-            db,
-            timestamp: timestamp,
-            cpuEClusterPct: sample.cpuEClusterPct,
-            cpuPClusterPct: sample.cpuPClusterPct,
-            cpuFreqE: sample.cpuFreqE,
-            cpuFreqP: sample.cpuFreqP,
-            cpuPowerWatts: sample.cpuPowerWatts,
-            gpuUtilizationPct: sample.gpuUtilizationPct,
-            gpuFreqMhz: sample.gpuFreqMhz,
-            gpuPowerWatts: sample.gpuPowerWatts,
-            anePowerWatts: sample.anePowerWatts,
-            memorySwapUsedBytes: sample.memorySwapUsedBytes,
-            memoryPressure: sample.memoryPressure,
-            memoryCompressedBytes: sample.memoryCompressedBytes,
-            memoryPageins: sample.memoryPageins,
-            memoryPageouts: sample.memoryPageouts,
-            thermalPressure: sample.thermalPressure,
-            cpuTempAvg: sample.cpuTempAvg,
-            gpuTempAvg: sample.gpuTempAvg,
-            packagePowerWatts: sample.packagePowerWatts,
-            sysPowerWatts: sample.sysPowerWatts
-        )
-
-        if inserted {
-            sampleCount += 1
-            onSampleCollected(sampleCount)
-        }
-
-        // Process snapshots every 5 minutes (10 × 30s)
-        if sampleCount > 0 && sampleCount % processSnapshotInterval == 0 {
-            if let ps = processSnapshotCollector {
-                let processes = ps.captureTopProcesses()
-                let procs = processes.map {
-                    (pid: $0.pid, name: $0.name, cpuPct: $0.cpuPct, memoryBytes: $0.memoryBytes)
-                }
-                _ = DatabaseSchema.insertProcessSnapshots(db, timestamp: timestamp, processes: procs)
-            }
-        }
-    }
-
-    private static func currentTimestamp() -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: Date())
-    }
-
-    // MARK: - Data Cleanup
-
-    private static func cleanupBadProcessData(_ db: OpaquePointer) {
-        // Delete process snapshots with CPU > 1000% (physically impossible, from old buggy calculation)
-        var stmt: OpaquePointer?
-        let sql = "DELETE FROM process_snapshots WHERE cpu_pct > 1000"
-        if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            if sqlite3_step(stmt) == SQLITE_DONE {
-                let deleted = sqlite3_changes(db)
-                if deleted > 0 {
-                    hrLog("\u{1F9F9}", "DB", "Cleaned up \(deleted) bad process snapshot rows")
-                }
-            }
-        }
-        sqlite3_finalize(stmt)
-    }
-
-    // MARK: - System Info Collection
-
-    private func collectSystemInfo(_ db: OpaquePointer) {
-        var stmt: OpaquePointer?
-        sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM system_info", -1, &stmt, nil)
-        var count: Int32 = 0
-        if sqlite3_step(stmt) == SQLITE_ROW {
-            count = sqlite3_column_int(stmt, 0)
-        }
-        sqlite3_finalize(stmt)
-        var chip = ""
-        var size = 0
-        sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0)
-        if size > 0 {
-            var buffer = [CChar](repeating: 0, count: size)
-            sysctlbyname("machdep.cpu.brand_string", &buffer, &size, nil, 0)
-            chip = String(cString: buffer)
-        }
-        if chip.isEmpty {
-            size = 0
-            sysctlbyname("hw.chip", nil, &size, nil, 0)
-            if size > 0 {
-                var buffer = [CChar](repeating: 0, count: size)
-                sysctlbyname("hw.chip", &buffer, &size, nil, 0)
-                chip = String(cString: buffer)
-            }
-        }
-
-        var model = ""
-        size = 0
-        sysctlbyname("hw.model", nil, &size, nil, 0)
-        if size > 0 {
-            var buffer = [CChar](repeating: 0, count: size)
-            sysctlbyname("hw.model", &buffer, &size, nil, 0)
-            model = String(cString: buffer)
-        }
-
-        // Get human-readable model name from system_profiler
-        var modelName = model // fallback to hw.model identifier
-        let profilerProcess = Foundation.Process()
-        profilerProcess.executableURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")
-        profilerProcess.arguments = ["SPHardwareDataType", "-json"]
-        let pipe = Pipe()
-        profilerProcess.standardOutput = pipe
-        profilerProcess.standardError = Pipe()
-        do {
-            try profilerProcess.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            profilerProcess.waitUntilExit()
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let items = json["SPHardwareDataType"] as? [[String: Any]],
-               let first = items.first,
-               let name = first["machine_name"] as? String {
-                if !chip.isEmpty {
-                    modelName = "\(name) (\(chip))"
-                } else {
-                    modelName = name
-                }
-            }
-        } catch {
-            hrLog("⚠️", "SysInfo", "system_profiler failed: \(error.localizedDescription)")
-        }
-
-        var cpuCores: Int32 = 0
-        size = MemoryLayout<Int32>.size
-        sysctlbyname("hw.ncpu", &cpuCores, &size, nil, 0)
-
-        var perfCores: Int32 = 0
-        size = MemoryLayout<Int32>.size
-        sysctlbyname("hw.perflevel0.logicalcpu", &perfCores, &size, nil, 0)
-
-        var effCores: Int32 = 0
-        size = MemoryLayout<Int32>.size
-        sysctlbyname("hw.perflevel1.logicalcpu", &effCores, &size, nil, 0)
-
-        var gpuCores: Int32 = 0
-        size = MemoryLayout<Int32>.size
-        sysctlbyname("machdep.gpu.core_count", &gpuCores, &size, nil, 0)
-
-        var ramBytes: UInt64 = 0
-        size = MemoryLayout<UInt64>.size
-        sysctlbyname("hw.memsize", &ramBytes, &size, nil, 0)
-        let ramGB = Int(ramBytes / (1024 * 1024 * 1024))
-
-        let osVersion = Foundation.ProcessInfo.processInfo.operatingSystemVersion
-        let macOSVersion = "\(osVersion.majorVersion).\(osVersion.minorVersion).\(osVersion.patchVersion)"
-
-        _ = DatabaseSchema.setSystemInfo(db, key: "chip", value: chip)
-        _ = DatabaseSchema.setSystemInfo(db, key: "model", value: model)
-        _ = DatabaseSchema.setSystemInfo(db, key: "model_name", value: modelName)
-        _ = DatabaseSchema.setSystemInfo(db, key: "cpu_cores", value: "\(cpuCores)")
-        _ = DatabaseSchema.setSystemInfo(db, key: "gpu_cores", value: "\(gpuCores)")
-        _ = DatabaseSchema.setSystemInfo(db, key: "total_ram_gb", value: "\(ramGB)")
-        _ = DatabaseSchema.setSystemInfo(db, key: "macos_version", value: macOSVersion)
-        _ = DatabaseSchema.setSystemInfo(db, key: "perf_cores", value: "\(perfCores)")
-        _ = DatabaseSchema.setSystemInfo(db, key: "efficiency_cores", value: "\(effCores)")
+    static var logPath: String {
+        HeadroomPaths.databaseDirectory
+            .appendingPathComponent("collector.log").path
     }
 }
 
@@ -275,6 +39,9 @@ final class CollectorManager {
     var isPerformingAction = false
     var statusMessage = ""
     var sampleCount = 0
+    var collectionMode: CollectionMode = .none
+    var isLaunchAgentInstalled = false
+    var isLaunchAgentRunning = false
 
     private var engine: CollectionEngine?
 
@@ -282,20 +49,179 @@ final class CollectorManager {
         FileManager.default.fileExists(atPath: HeadroomPaths.databasePath)
     }
 
-    var isDaemonRunning: Bool { isCollecting }
-    var isFullySetUp: Bool { isCollecting && dbExists }
-    var needsSetup: Bool { !isCollecting }
+    var isDaemonRunning: Bool {
+        isLaunchAgentRunning || isCollecting
+    }
+
+    var isFullySetUp: Bool { isDaemonRunning && dbExists }
+    var needsSetup: Bool { !isDaemonRunning }
 
     var statusDescription: String {
-        isCollecting ? "Running" : "Not started"
+        switch collectionMode {
+        case .launchAgent: return "Collecting 24/7"
+        case .inProcess: return "Collecting (app only)"
+        case .none: return "Not started"
+        }
     }
 
-    func checkStatus() {
-        // In single-process mode, state is always current
+    var launchAgentPathMatchesBundle: Bool {
+        guard let bundleBinary = LaunchAgentConfig.collectorBinaryURL else { return false }
+        let plistURL = LaunchAgentConfig.plistURL
+        guard FileManager.default.fileExists(atPath: plistURL.path),
+              let data = try? Data(contentsOf: plistURL),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let args = plist["ProgramArguments"] as? [String],
+              let installedPath = args.first else {
+            return false
+        }
+        return installedPath == bundleBinary.path
     }
+
+    // MARK: - Status Check
+
+    func checkStatus() {
+        let plistExists = FileManager.default.fileExists(atPath: LaunchAgentConfig.plistURL.path)
+        isLaunchAgentInstalled = plistExists
+
+        if plistExists {
+            let process = Foundation.Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            process.arguments = ["list", LaunchAgentConfig.label]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = Pipe()
+            do {
+                try process.run()
+                process.waitUntilExit()
+                isLaunchAgentRunning = process.terminationStatus == 0
+            } catch {
+                isLaunchAgentRunning = false
+            }
+        } else {
+            isLaunchAgentRunning = false
+        }
+
+        if isLaunchAgentRunning {
+            collectionMode = .launchAgent
+        } else if isCollecting {
+            collectionMode = .inProcess
+        } else {
+            collectionMode = .none
+        }
+    }
+
+    // MARK: - LaunchAgent Install/Uninstall
+
+    func installLaunchAgent() {
+        guard let binaryURL = LaunchAgentConfig.collectorBinaryURL,
+              FileManager.default.fileExists(atPath: binaryURL.path) else {
+            statusMessage = "HeadroomCollector binary not found in app bundle"
+            return
+        }
+
+        isPerformingAction = true
+        statusMessage = ""
+
+        // Stop in-process engine first
+        if isCollecting {
+            engine?.stop()
+            engine = nil
+            isCollecting = false
+        }
+
+        // Ensure LaunchAgents directory exists
+        let launchAgentsDir = LaunchAgentConfig.plistURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true)
+
+        // Ensure log directory exists
+        try? FileManager.default.createDirectory(
+            at: HeadroomPaths.databaseDirectory,
+            withIntermediateDirectories: true
+        )
+
+        // Generate plist
+        let plist: [String: Any] = [
+            "Label": LaunchAgentConfig.label,
+            "ProgramArguments": [binaryURL.path],
+            "RunAtLoad": true,
+            "KeepAlive": true,
+            "StandardOutPath": LaunchAgentConfig.logPath,
+            "StandardErrorPath": LaunchAgentConfig.logPath,
+            "ProcessType": "Background",
+        ]
+
+        do {
+            let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            try data.write(to: LaunchAgentConfig.plistURL)
+        } catch {
+            statusMessage = "Failed to write plist: \(error.localizedDescription)"
+            isPerformingAction = false
+            return
+        }
+
+        // Load the agent
+        let process = Foundation.Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["load", LaunchAgentConfig.plistURL.path]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            if process.terminationStatus == 0 {
+                isLaunchAgentInstalled = true
+                isLaunchAgentRunning = true
+                collectionMode = .launchAgent
+                statusMessage = "Background agent installed"
+            } else {
+                statusMessage = "launchctl load failed (exit \(process.terminationStatus))"
+            }
+        } catch {
+            statusMessage = "Failed to run launchctl: \(error.localizedDescription)"
+        }
+
+        isPerformingAction = false
+    }
+
+    func uninstallLaunchAgent() {
+        isPerformingAction = true
+        statusMessage = ""
+
+        let plistURL = LaunchAgentConfig.plistURL
+
+        // Unload first
+        if isLaunchAgentRunning {
+            let process = Foundation.Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            process.arguments = ["unload", plistURL.path]
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                // Continue to delete plist anyway
+            }
+        }
+
+        // Delete plist
+        try? FileManager.default.removeItem(at: plistURL)
+
+        isLaunchAgentInstalled = false
+        isLaunchAgentRunning = false
+        collectionMode = isCollecting ? .inProcess : .none
+        statusMessage = "Background agent removed"
+        isPerformingAction = false
+    }
+
+    // MARK: - In-Process Collection
 
     func start() {
         guard !isCollecting, !isPerformingAction else { return }
+
+        // Don't start in-process if LaunchAgent is running
+        if isLaunchAgentRunning { return }
+
         isPerformingAction = true
         statusMessage = ""
 
@@ -311,6 +237,7 @@ final class CollectorManager {
                 guard let self else { return }
                 if success {
                     self.isCollecting = true
+                    self.collectionMode = .inProcess
                     self.statusMessage = "Monitoring started"
                 } else {
                     self.statusMessage = "Failed to start collection"
@@ -325,6 +252,7 @@ final class CollectorManager {
         engine?.stop()
         engine = nil
         isCollecting = false
+        collectionMode = isLaunchAgentRunning ? .launchAgent : .none
         statusMessage = "Monitoring stopped"
     }
 }

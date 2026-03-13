@@ -131,10 +131,10 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(collector.isDaemonRunning ? .green : .red)
+                    .fill(statusDotColor)
                     .frame(width: 7, height: 7)
 
-                Text(collector.isDaemonRunning ? "Collecting" : "Stopped")
+                Text(collector.statusDescription)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(collector.isDaemonRunning ? .primary : .secondary)
 
@@ -147,7 +147,24 @@ struct ContentView: View {
                     .foregroundStyle(.tertiary)
             }
 
-            // Action button
+            // Path mismatch warning
+            if collector.isLaunchAgentInstalled && !collector.launchAgentPathMatchesBundle {
+                Button {
+                    collector.uninstallLaunchAgent()
+                    collector.installLaunchAgent()
+                } label: {
+                    Label("Reinstall (app moved)", systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.orange)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 3)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            // Action buttons
             if collector.isPerformingAction {
                 HStack(spacing: 4) {
                     ProgressView()
@@ -156,36 +173,86 @@ struct ContentView: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
-            } else if !collector.isCollecting {
-                Button {
-                    collector.start()
-                    Task {
-                        try? await Task.sleep(for: .seconds(35))
-                        db.load()
-                    }
-                } label: {
-                    Label("Start Monitoring", systemImage: "play.fill")
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 5)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
-                .controlSize(.small)
             } else {
-                Button {
-                    collector.stop()
-                } label: {
-                    Label("Pause", systemImage: "pause.fill")
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 5)
-                        .contentShape(Rectangle())
+                switch collector.collectionMode {
+                case .launchAgent:
+                    Button {
+                        collector.uninstallLaunchAgent()
+                    } label: {
+                        Label("Remove Agent", systemImage: "xmark.circle")
+                            .font(.system(size: 11, weight: .medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                case .inProcess:
+                    Button {
+                        collector.installLaunchAgent()
+                    } label: {
+                        Label("Install Background Agent", systemImage: "arrow.clockwise.circle")
+                            .font(.system(size: 11, weight: .medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.cyan)
+                    .controlSize(.small)
+
+                    Button {
+                        collector.stop()
+                    } label: {
+                        Label("Pause", systemImage: "pause.fill")
+                            .font(.system(size: 11, weight: .medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                case .none:
+                    Button {
+                        collector.installLaunchAgent()
+                    } label: {
+                        Label("Install Background Agent", systemImage: "arrow.clockwise.circle")
+                            .font(.system(size: 11, weight: .medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.cyan)
+                    .controlSize(.small)
+
+                    Button {
+                        collector.start()
+                        Task {
+                            try? await Task.sleep(for: .seconds(35))
+                            db.load()
+                        }
+                    } label: {
+                        Label("Start In-App Only", systemImage: "play.fill")
+                            .font(.system(size: 11, weight: .medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
+        }
+    }
+
+    private var statusDotColor: Color {
+        switch collector.collectionMode {
+        case .launchAgent: .green
+        case .inProcess: .yellow
+        case .none: .red
         }
     }
 

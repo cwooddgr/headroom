@@ -13,9 +13,11 @@ struct HeadroomApp: App {
                 .frame(minWidth: 900, minHeight: 600)
                 .preferredColorScheme(.dark)
                 .task {
-                    // Auto-start collection if DB exists (returning user)
-                    if collector.dbExists {
-                        collector.start()
+                    collector.checkStatus()
+                    if collector.isLaunchAgentRunning {
+                        collector.collectionMode = .launchAgent
+                    } else if collector.dbExists {
+                        collector.start() // fallback to in-process
                     }
                 }
         }
