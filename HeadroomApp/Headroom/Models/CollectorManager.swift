@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 @preconcurrency import ServiceManagement
+import SQLite3
 import SwiftUI
 
 // MARK: - Collection Mode
@@ -316,11 +317,15 @@ final class CollectorManager {
             process.waitUntilExit()
         }
 
-        // Delete the database
-        try? FileManager.default.removeItem(atPath: HeadroomPaths.databasePath)
-        // Also remove WAL/SHM files
-        try? FileManager.default.removeItem(atPath: HeadroomPaths.databasePath + "-wal")
-        try? FileManager.default.removeItem(atPath: HeadroomPaths.databasePath + "-shm")
+        // Clear data by truncating tables (safe even if a reader has the DB open)
+        var db: OpaquePointer?
+        if sqlite3_open(HeadroomPaths.databasePath, &db) == SQLITE_OK, let db {
+            sqlite3_exec(db, "DELETE FROM samples", nil, nil, nil)
+            sqlite3_exec(db, "DELETE FROM process_snapshots", nil, nil, nil)
+            sqlite3_exec(db, "DELETE FROM system_info", nil, nil, nil)
+            sqlite3_exec(db, "VACUUM", nil, nil, nil)
+            sqlite3_close(db)
+        }
 
         // Restart whatever was running
         if hadAgent {
