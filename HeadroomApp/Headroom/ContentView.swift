@@ -32,7 +32,7 @@ struct ContentView: View {
         }
         .task {
             collector.migrateLegacyAgent()
-            collector.checkStatus()
+            await collector.checkStatus()
             if !collector.isCollecting && !collector.isLaunchAgentRunning {
                 if collector.dbExists {
                     collector.start()
@@ -44,7 +44,7 @@ struct ContentView: View {
             // Auto-refresh every 30 seconds (incremental)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
-                collector.checkStatus()
+                await collector.checkStatus()
                 db.refresh()
             }
         }

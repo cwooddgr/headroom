@@ -48,6 +48,9 @@ final class CollectorManager {
 
     private var engine: CollectionEngine?
 
+    /// Cached result of the last `launchctl list` check, updated by `checkStatus()`.
+    private(set) var isLaunchAgentRunning = false
+
     var dbExists: Bool {
         FileManager.default.fileExists(atPath: HeadroomPaths.databasePath)
     }
@@ -56,20 +59,24 @@ final class CollectorManager {
         FileManager.default.fileExists(atPath: LaunchAgentConfig.plistURL.path)
     }
 
-    var isLaunchAgentRunning: Bool {
-        // Check if launchctl knows about the agent and it has a PID
-        let process = Foundation.Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        process.arguments = ["list", LaunchAgentConfig.label]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
-        } catch {
-            return false
+    /// Runs `launchctl list` off the main thread to avoid pumping the runloop
+    /// during SwiftUI body evaluation (which caused reentrant crashes).
+    private func queryLaunchAgentRunning() async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Foundation.Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+                process.arguments = ["list", LaunchAgentConfig.label]
+                process.standardOutput = Pipe()
+                process.standardError = Pipe()
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    continuation.resume(returning: process.terminationStatus == 0)
+                } catch {
+                    continuation.resume(returning: false)
+                }
+            }
         }
     }
 
@@ -107,7 +114,10 @@ final class CollectorManager {
 
     // MARK: - Status Check
 
-    func checkStatus() {
+    func checkStatus() async {
+        // Query launchctl off the main thread and cache the result
+        isLaunchAgentRunning = await queryLaunchAgentRunning()
+
         // Check if installed plist exists and DB was recently modified
         let newMode: CollectionMode
         if isLaunchAgentInstalled {
