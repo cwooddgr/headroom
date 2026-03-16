@@ -31,7 +31,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .task {
-            collector.migrateLegacyAgent()
+            await collector.migrateLegacyAgent()
             await collector.checkStatus()
             if !collector.isCollecting && !collector.isLaunchAgentRunning {
                 if collector.dbExists {
@@ -173,8 +173,10 @@ struct ContentView: View {
                         .buttonStyle(.plain)
                         .confirmationDialog("Reset all collected data?", isPresented: $showingResetConfirmation) {
                             Button("Reset Data", role: .destructive) {
-                                collector.resetData()
-                                db.load()
+                                Task {
+                                    await collector.resetData()
+                                    db.load()
+                                }
                             }
                         } message: {
                             Text("This will delete all samples and start fresh. Collection will restart automatically.")

@@ -59,22 +59,22 @@ final class CollectorManager {
         FileManager.default.fileExists(atPath: LaunchAgentConfig.plistURL.path)
     }
 
-    /// Runs `launchctl list` off the main thread to avoid pumping the runloop
-    /// during SwiftUI body evaluation (which caused reentrant crashes).
-    private func queryLaunchAgentRunning() async -> Bool {
+    /// Runs a Process off the main thread to avoid pumping a nested runloop
+    /// during SwiftUI body evaluation (which caused reentrant crashes / SIGSEGV).
+    private func runProcess(_ executablePath: String, arguments: [String]) async -> Int32 {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Foundation.Process()
-                process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-                process.arguments = ["list", LaunchAgentConfig.label]
+                process.executableURL = URL(fileURLWithPath: executablePath)
+                process.arguments = arguments
                 process.standardOutput = Pipe()
                 process.standardError = Pipe()
                 do {
                     try process.run()
                     process.waitUntilExit()
-                    continuation.resume(returning: process.terminationStatus == 0)
+                    continuation.resume(returning: process.terminationStatus)
                 } catch {
-                    continuation.resume(returning: false)
+                    continuation.resume(returning: -1)
                 }
             }
         }
@@ -116,7 +116,7 @@ final class CollectorManager {
 
     func checkStatus() async {
         // Query launchctl off the main thread and cache the result
-        isLaunchAgentRunning = await queryLaunchAgentRunning()
+        isLaunchAgentRunning = await runProcess("/bin/launchctl", arguments: ["list", LaunchAgentConfig.label]) == 0
 
         // Check if installed plist exists and DB was recently modified
         let newMode: CollectionMode
@@ -187,20 +187,14 @@ final class CollectorManager {
             let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
             try data.write(to: LaunchAgentConfig.plistURL, options: .atomic)
 
-            // Load via launchctl
-            let process = Foundation.Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            process.arguments = ["load", LaunchAgentConfig.plistURL.path]
-            process.standardOutput = Pipe()
-            process.standardError = Pipe()
-            try process.run()
-            process.waitUntilExit()
+            // Load via launchctl (off main thread to avoid nested runloop)
+            let loadStatus = await runProcess("/bin/launchctl", arguments: ["load", LaunchAgentConfig.plistURL.path])
 
-            if process.terminationStatus == 0 {
+            if loadStatus == 0 {
                 collectionMode = .launchAgent
                 statusMessage = "Background agent installed"
             } else {
-                statusMessage = "launchctl load failed (exit \(process.terminationStatus))"
+                statusMessage = "launchctl load failed (exit \(loadStatus))"
             }
         } catch {
             statusMessage = "Failed to install agent: \(error.localizedDescription)"
@@ -213,15 +207,9 @@ final class CollectorManager {
         isPerformingAction = true
         statusMessage = ""
 
-        // Unload via launchctl
+        // Unload via launchctl (off main thread to avoid nested runloop)
         if isLaunchAgentInstalled {
-            let process = Foundation.Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            process.arguments = ["unload", LaunchAgentConfig.plistURL.path]
-            process.standardOutput = Pipe()
-            process.standardError = Pipe()
-            try? process.run()
-            process.waitUntilExit()
+            _ = await runProcess("/bin/launchctl", arguments: ["unload", LaunchAgentConfig.plistURL.path])
         }
 
         // Delete the plist
@@ -235,11 +223,11 @@ final class CollectorManager {
     // MARK: - Legacy Migration
 
     /// Clean up any SMAppService registration left by v2.0/2.0.1.
-    func migrateLegacyAgent() {
+    func migrateLegacyAgent() async {
         // Try to unregister the SMAppService agent from v2.0/2.0.1
         if #available(macOS 13.0, *) {
             do {
-                try SMAppService.agent(plistName: "co.dgrlabs.headroom.collector.plist").unregister()
+                try await SMAppService.agent(plistName: "co.dgrlabs.headroom.collector.plist").unregister()
             } catch {
                 // Not registered or already cleaned up — ignore
             }
@@ -254,15 +242,8 @@ final class CollectorManager {
         if let data = try? Data(contentsOf: smPlistURL),
            let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
            plist["BundleProgram"] != nil {
-            // Unload first
-            let process = Foundation.Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            process.arguments = ["unload", smPlistURL.path]
-            process.standardOutput = Pipe()
-            process.standardError = Pipe()
-            try? process.run()
-            process.waitUntilExit()
-
+            // Unload first (off main thread to avoid nested runloop)
+            _ = await runProcess("/bin/launchctl", arguments: ["unload", smPlistURL.path])
             try? FileManager.default.removeItem(at: smPlistURL)
         }
     }
@@ -311,7 +292,7 @@ final class CollectorManager {
 
     // MARK: - Reset Data
 
-    func resetData() {
+    func resetData() async {
         // Stop in-process engine so it releases the DB
         let wasCollecting = isCollecting
         if isCollecting {
@@ -320,16 +301,10 @@ final class CollectorManager {
             isCollecting = false
         }
 
-        // Stop agent so it releases the DB
+        // Stop agent so it releases the DB (off main thread to avoid nested runloop)
         let hadAgent = isLaunchAgentInstalled
         if hadAgent {
-            let process = Foundation.Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            process.arguments = ["unload", LaunchAgentConfig.plistURL.path]
-            process.standardOutput = Pipe()
-            process.standardError = Pipe()
-            try? process.run()
-            process.waitUntilExit()
+            _ = await runProcess("/bin/launchctl", arguments: ["unload", LaunchAgentConfig.plistURL.path])
         }
 
         // Clear data by truncating tables (safe even if a reader has the DB open)
@@ -344,14 +319,8 @@ final class CollectorManager {
 
         // Restart whatever was running
         if hadAgent {
-            let process = Foundation.Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            process.arguments = ["load", LaunchAgentConfig.plistURL.path]
-            process.standardOutput = Pipe()
-            process.standardError = Pipe()
-            try? process.run()
-            process.waitUntilExit()
-            collectionMode = isLaunchAgentRunning ? .launchAgent : .none
+            let loadStatus = await runProcess("/bin/launchctl", arguments: ["load", LaunchAgentConfig.plistURL.path])
+            collectionMode = loadStatus == 0 ? .launchAgent : .none
         } else if wasCollecting {
             start()
         } else {
