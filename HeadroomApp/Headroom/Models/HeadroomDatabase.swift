@@ -41,16 +41,19 @@ final class HeadroomDatabase {
         }
         defer { sqlite3_close(db) }
 
-        systemInfo = querySystemInfo(db!)
-        samples = querySamples(db!)
-        lastSampleId = samples.last?.id ?? 0
-        topProcessesByMemory = queryTopProcesses(db!, orderBy: "avg_mem")
-        topProcessesByCPU = queryTopProcesses(db!, orderBy: "avg_cpu")
+        // Query everything into locals first, then assign once to minimize observation notifications
+        let info = querySystemInfo(db!)
+        let allSamples = querySamples(db!)
+        let procsMem = queryTopProcesses(db!, orderBy: "avg_mem")
+        let procsCPU = queryTopProcesses(db!, orderBy: "avg_cpu")
 
-        if !samples.isEmpty {
-            analysis = computeAnalysis(db!)
-        }
-
+        lastSampleId = allSamples.last?.id ?? 0
+        systemInfo = info
+        samples = allSamples
+        topProcessesByMemory = procsMem
+        topProcessesByCPU = procsCPU
+        analysis = allSamples.isEmpty ? nil : computeAnalysis(db!)
+        errorMessage = nil
         isLoaded = true
     }
 

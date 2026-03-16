@@ -48,6 +48,7 @@ final class CollectionEngine: @unchecked Sendable {
                 return
             }
 
+            sqlite3_busy_timeout(dbPtr, 5000) // wait up to 5s for lock to clear
             DatabaseSchema.enableWAL(dbPtr)
             guard DatabaseSchema.createTables(dbPtr) else {
                 sqlite3_close(dbPtr)

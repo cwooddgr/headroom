@@ -31,7 +31,13 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .task {
+            collector.migrateLegacyAgent()
             collector.checkStatus()
+            if !collector.isCollecting && !collector.isLaunchAgentRunning {
+                if collector.dbExists {
+                    collector.start()
+                }
+            }
             db.load()
         }
         .task(id: "refresh") {
@@ -140,6 +146,12 @@ struct ContentView: View {
                     .foregroundStyle(collector.isDaemonRunning ? .primary : .secondary)
 
                 Spacer()
+            }
+
+            if !collector.statusMessage.isEmpty {
+                Text(collector.statusMessage)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
             }
 
             if db.isLoaded {

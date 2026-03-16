@@ -6,7 +6,7 @@ import SwiftUI
 
 // MARK: - Collection Mode
 
-enum CollectionMode {
+enum CollectionMode: Equatable {
     case launchAgent
     case inProcess
     case none
@@ -109,6 +109,7 @@ final class CollectorManager {
 
     func checkStatus() {
         // Check if installed plist exists and DB was recently modified
+        let newMode: CollectionMode
         if isLaunchAgentInstalled {
             let dbRecentlyModified: Bool = {
                 guard let attrs = try? FileManager.default.attributesOfItem(atPath: HeadroomPaths.databasePath),
@@ -119,14 +120,18 @@ final class CollectorManager {
             }()
 
             if dbRecentlyModified || isLaunchAgentRunning {
-                collectionMode = .launchAgent
+                newMode = .launchAgent
             } else {
-                collectionMode = .none
+                newMode = .none
             }
         } else if isCollecting {
-            collectionMode = .inProcess
+            newMode = .inProcess
         } else {
-            collectionMode = .none
+            newMode = .none
+        }
+
+        if collectionMode != newMode {
+            collectionMode = newMode
         }
     }
 
